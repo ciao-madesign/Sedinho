@@ -4,21 +4,20 @@ import type { ImportConnector } from "../types.js";
 
 const QUOTATIONS_URL = "https://www.fantacalcio.it/quotazioni-fantacalcio";
 
-/** Selettori CSS per il listone quotazioni ufficiali. NON VERIFICATI dal vivo: il sandbox
- * di sviluppo in cui e' stato scritto questo file non ha accesso a internet (policy di rete),
- * quindi sono una stima ragionevole della struttura nota del sito, da confermare/correggere
- * eseguendo `npm run dev:api` in locale e chiamando POST /import/run. Se il markup del sito
- * e' cambiato, questo e' l'unico punto da aggiornare: la logica sotto resta valida finche'
- * ogni riga della tabella espone ruolo, nome, squadra e quotazione in qualche forma. */
+/** Selettori CSS per il listone quotazioni ufficiali, verificati dal vivo (agosto 2026)
+ * tramite una rotta di debug temporanea deployata su Vercel (il sandbox di sviluppo non
+ * ha accesso a internet, vedi CLAUDE.md). Il ruolo Classic e' esposto come attributo
+ * `data-filter-role-classic` sulla riga stessa (es. "p"|"d"|"c"|"a"), non come testo di un
+ * elemento figlio. Se il markup cambia di nuovo, questo e' l'unico punto da aggiornare. */
 const SELECTORS = {
-  tableRow: "table.table-players tbody tr, table.player-table tbody tr",
-  role: ".player-role, td:nth-child(1)",
-  name: ".player-name, td:nth-child(3)",
-  team: ".player-team, td:nth-child(4)",
-  quotationClassic: ".price-classic, td:nth-child(5)",
+  tableRow: "table.pills-table tr.player-row",
+  roleAttr: "data-filter-role-classic",
+  name: ".player-name",
+  team: ".player-team",
+  quotationClassic: ".player-classic-initial-price",
 };
 
-const ROLE_MAP: Record<string, PlayerRole> = { P: "P", D: "D", C: "C", A: "A" };
+const ROLE_MAP: Record<string, PlayerRole> = { p: "P", d: "D", c: "C", a: "A" };
 
 export const fantacalcioItConnector: ImportConnector = {
   id: "fantacalcio-it",
@@ -41,7 +40,7 @@ export const fantacalcioItConnector: ImportConnector = {
 
     $(SELECTORS.tableRow).each((_, row) => {
       const $row = $(row);
-      const roleRaw = $row.find(SELECTORS.role).first().text().trim().toUpperCase();
+      const roleRaw = ($row.attr(SELECTORS.roleAttr) ?? "").toLowerCase();
       const name = $row.find(SELECTORS.name).first().text().trim();
       const team = $row.find(SELECTORS.team).first().text().trim();
       const quotationRaw = $row.find(SELECTORS.quotationClassic).first().text().trim();
