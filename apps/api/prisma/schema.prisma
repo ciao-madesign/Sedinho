@@ -1,0 +1,225 @@
+// Schema iniziale del database centrale di Sedinho (vedi CLAUDE.md e specs/funzionale-v1.md).
+// Provider SQLite per lo sviluppo locale; pensato per essere migrabile a PostgreSQL (sez. 17).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Configurazione lega (sez. 3)
+// ---------------------------------------------------------------------------
+
+model League {
+  id                 String   @id @default(cuid())
+  name               String
+  participants       Int
+  initialBudget      Int
+  rosterComposition  String   // JSON: { P: number, D: number, C: number, A: number }
+  allowedModules     String   // JSON: string[]
+  auctionMode        String
+  callOrder          String   // JSON: CallOrderRule
+  rulesText          String
+  parsedRules        String   // JSON: ParsedRule[]
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Anagrafica e dati centrali dei giocatori (sez. 4)
+// ---------------------------------------------------------------------------
+
+model Player {
+  id                    String   @id @default(cuid())
+  name                  String
+  team                  String
+  role                  String   // P | D | C | A (ridefinibile dalla lega)
+  birthDate             DateTime?
+  nationality           String?
+  foot                  String?  // left | right | both
+  availability          String   @default("available") // available | injured | suspended | doubtful
+  estimatedRecoveryDate DateTime?
+
+  source      String
+  updatedAt   DateTime @updatedAt
+  reliability Float    @default(1)
+  createdAt   DateTime @default(now())
+
+  seasonStats   SeasonStats[]
+  hierarchies   PlayerHierarchy[]
+  setPieceRoles SetPieceRole[]
+  transfers     Transfer[]
+  evaluations   PlayerEvaluation[]
+
+  @@index([team])
+  @@index([role])
+}
+
+model SeasonStats {
+  id       String @id @default(cuid())
+  playerId String
+  player   Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  season      String
+  competition String
+
+  appearances      Int   @default(0)
+  minutes          Int   @default(0)
+  fantasyAvg       Float @default(0)
+  averageRating    Float @default(0)
+  goals            Int   @default(0)
+  assists          Int   @default(0)
+  xG               Float @default(0)
+  xA               Float @default(0)
+  shots            Int   @default(0)
+  shotsOnTarget    Int   @default(0)
+  yellowCards      Int   @default(0)
+  redCards         Int   @default(0)
+  penaltiesScored  Int   @default(0)
+  penaltiesTaken   Int   @default(0)
+  cleanSheets      Int   @default(0)
+  expectedBonus    Float @default(0)
+
+  source      String
+  updatedAt   DateTime @updatedAt
+  reliability Float    @default(1)
+
+  @@unique([playerId, season, competition])
+  @@index([season])
+}
+
+model PlayerHierarchy {
+  id       String @id @default(cuid())
+  playerId String
+  player   Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  level       String // starter | first-alternate | second-alternate
+  reliability Float
+
+  source    String
+  updatedAt DateTime @updatedAt
+
+  @@index([playerId])
+}
+
+model SetPieceRole {
+  id       String @id @default(cuid())
+  playerId String
+  player   Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  type        String // penalty-1 | penalty-2 | penalty-3 | direct-free-kick-1 | direct-free-kick-2 | corner | side-free-kick
+  probability Float
+
+  source    String
+  updatedAt DateTime @updatedAt
+
+  @@unique([playerId, type])
+}
+
+model TeamRotationProfile {
+  id   String @id @default(cuid())
+  team String @unique
+
+  numberOfCompetitions        Int
+  turnoverFrequency           Float
+  coachReliability             Float
+  turnoverProbabilityByRole   String // JSON: Partial<Record<PlayerRole, number>>
+
+  source    String
+  updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Trasferimenti (sez. 6)
+// ---------------------------------------------------------------------------
+
+model Transfer {
+  id       String @id @default(cuid())
+  playerId String
+  player   Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  fromTeam String?
+  toTeam   String
+  date     DateTime
+
+  startingRoleImpact     Float
+  minutesImpact          Float
+  bonusImpact            Float
+  riskDelta              Float
+  fantasyValueDelta      Float
+  newStarterProbability  Float
+  isHighlighted          Boolean @default(false)
+
+  source    String
+  updatedAt DateTime @updatedAt
+
+  @@index([playerId])
+}
+
+// ---------------------------------------------------------------------------
+// Valutazioni (sez. 8)
+// ---------------------------------------------------------------------------
+
+model PlayerEvaluation {
+  id       String @id @default(cuid())
+  playerId String
+  player   Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  computedAt DateTime @default(now())
+
+  reliability String // JSON: ReliabilityIndices
+  production  String // JSON: ProductionIndices
+  bonus       String // JSON: BonusIndices
+  stability   String // JSON: StabilityIndices
+  value       String // JSON: ValueIndices
+  explanation String // JSON: Explanation
+
+  @@index([playerId])
+}
+
+// ---------------------------------------------------------------------------
+// Asta live (sez. 11-13)
+// ---------------------------------------------------------------------------
+
+model Auction {
+  id        String   @id @default(cuid())
+  leagueId  String
+  startedAt DateTime @default(now())
+  endedAt   DateTime?
+
+  entries AuctionEntry[]
+}
+
+model AuctionEntry {
+  id        String   @id @default(cuid())
+  auctionId String
+  auction   Auction  @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+
+  playerId  String
+  price     Int
+  buyerId   String
+  timestamp DateTime @default(now())
+
+  @@index([auctionId])
+  @@index([playerId])
+}
+
+model OpponentProfile {
+  id            String @id @default(cuid())
+  participantId String @unique
+
+  aggressiveness        Float @default(0)
+  averageSpend          Float @default(0)
+  topPlayerPreference   Float @default(0)
+  youngPlayerPreference Float @default(0)
+  teamPreferences       String @default("{}") // JSON: Record<string, number>
+  spendConcentration    Float @default(0)
+  remainingBudget       Float @default(0)
+  overpayIndex          Float @default(0)
+
+  updatedAt DateTime @updatedAt
+}

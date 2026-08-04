@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+.vite/
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.db-journal
+apps/api/prisma/dev.db*
+
+# Logs
+npm-debug.log*
+*.log
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Coverage
+coverage/
