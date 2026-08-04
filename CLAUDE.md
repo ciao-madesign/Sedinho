@@ -27,39 +27,45 @@ supporto decisionale → report finale. Principi non negoziabili (sez. 2):
 | Layer | Scelta | Note |
 |---|---|---|
 | Frontend | React 18 + TypeScript + Vite | Tailwind CSS per lo styling, Recharts per i grafici (sez. 10) |
-| Backend | Node.js + TypeScript + Fastify | API REST, `tsx` per il dev loop |
-| ORM / DB | Prisma + SQLite (`apps/api/prisma/dev.db`) | Migrabile a PostgreSQL cambiando solo `datasource` in `schema.prisma` (sez. 17) |
+| Backend | Node.js + TypeScript + Fastify | API REST, `tsx` per il dev loop; in produzione gira come function serverless Vercel (vedi sez. 9 "Deploy") |
+| ORM / DB | Prisma + **PostgreSQL (Neon)** | `apps/api/prisma/schema.prisma`; migrato da SQLite (sez. 17) perché le function serverless Vercel hanno filesystem effimero |
 | Routing frontend | react-router-dom | |
 | Tipi condivisi | `packages/shared` (workspace npm) | Unica fonte di verità per i tipi di dominio, usata sia da `apps/api` che da `apps/web` |
 | Package manager | npm workspaces (monorepo) | root `package.json` con `workspaces: ["apps/*", "packages/*"]` |
 | Scraping | Playwright + Cheerio | Connettori modulari in `apps/api/src/import/connectors/`, invocati solo dal pulsante "Aggiorna Database" (mai in automatico) |
+| Deploy | Vercel (frontend statico + function `/api`) + Neon (Postgres) | Vedi sez. 9 |
 
 ## 3. Struttura del repository
 
 ```
 Sedinho/
+├── api/
+│   └── index.ts               # function serverless Vercel: inoltra /api/* a @sedinho/api (vedi sez. 9)
 ├── apps/
 │   ├── api/                  # Backend Fastify + Prisma
 │   │   ├── prisma/schema.prisma
 │   │   └── src/
-│   │       ├── index.ts      # entrypoint, registra le rotte
+│   │       ├── app.ts        # buildApp(): costruisce l'istanza Fastify (riusata da index.ts e dalla function Vercel)
+│   │       ├── index.ts      # entrypoint dev locale, chiama buildApp().listen()
 │   │       ├── db/prisma.ts  # client Prisma condiviso
-│   │       ├── lib/league-mapper.ts  # confine JSON-string <-> tipi condivisi (SQLite non ha il tipo Json)
+│   │       ├── lib/league-mapper.ts  # confine JSON-string <-> tipi condivisi (SQLite/Postgres via Prisma non hanno sempre Json comodo)
 │   │       ├── import/       # pipeline "Aggiorna Database": types, upsert, runImport, connectors/
-│   │       │   └── connectors/   # fantacalcioIt (reale), fstats + fantacalciopedia (stub, vedi §5)
+│   │       │   └── connectors/   # fantacalcioIt (reale, verificato in produzione), fstats + fantacalciopedia (stub, vedi §5)
 │   │       └── routes/       # health, leagues (GET/POST/PUT), players, import (POST /import/run)
 │   └── web/                  # Frontend Vite + React
 │       └── src/
 │           ├── App.tsx       # routing
 │           ├── components/
 │           │   ├── Layout.tsx
+│           │   ├── ImportPanel.tsx        # pulsante "Aggiorna Database" + riepilogo per fonte
 │           │   └── setup-wizard/   # StructureStep, EconomyStep, RulesStep, SummaryStep, defaultDraft
 │           ├── pages/        # DashboardPage, SetupWizardPage, ...
-│           └── lib/api.ts    # client fetch tipizzato verso /api (proxy Vite → :3001)
+│           └── lib/api.ts    # client fetch tipizzato verso /api (proxy Vite → :3001 in dev)
 ├── packages/
-│   └── shared/                # Tipi TS condivisi (League, Player, Evaluation, Auction, ...)
+│   └── shared/                # Tipi TS condivisi (League, Player, Evaluation, Auction, Import, ...)
 ├── docs/
 │   └── specs/funzionale-v1.md # Specifica funzionale originale (fonte di verità del dominio)
+├── vercel.json                 # buildCommand multi-step, rewrite /api/* -> function, rewrite SPA
 └── CLAUDE.md                  # questo file
 ```
 
@@ -73,8 +79,8 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 | Tipi di dominio condivisi (`packages/shared`) | ✅ | League (+ EntryFee/PrizePool/CupFormat), Player, SeasonStats, Hierarchy, SetPieces, TeamRotation, Transfer, PlayerEvaluation, Auction/Market/Decision |
 | Schema DB (Prisma/SQLite) | ✅ | Rispecchia i tipi condivisi; 2 migrazioni applicate (`init`, `league-financials`) |
 | Setup Wizard (sez. 3) | ✅ | 4 step reali (Struttura, Economia, Regolamento, Riepilogo) in `SetupWizardPage` + `components/setup-wizard/*`, collegati a `POST`/`PUT /leagues`; precompilato (editabile) con il regolamento reale "Travedona Serie A"; regole (`ParsedRule[]`) inserite tramite form strutturato manuale, non parsing automatico (vedi §5) |
-| Database centrale giocatori (sez. 4) | 🚧 | Schema pronto (incl. `initialQuotation`), API di lettura (`GET /players`, `GET /players/:id`); popolabile solo tramite import (nessun dato reale ancora, i connettori vanno testati/rifiniti in locale — vedi §5); nessuna UI di dettaglio giocatore |
-| Sistema di aggiornamento / scraping (sez. 5) | 🚧 | Pipeline completa: `POST /import/run` (pulsante "Aggiorna Database" in Dashboard) orchestra connettori modulari (`ImportConnector`) e fa upsert con source/reliability. Connettore Fantacalcio.it (quotazioni) scritto ma **non verificato dal vivo** (sandbox senza accesso a internet, selettori da confermare in locale); FSTATS e Fantacalciopedia sono stub che riportano "skipped" finché non completati |
+| Database centrale giocatori (sez. 4) | 🚧 | Schema pronto (incl. `initialQuotation`), API di lettura (`GET /players`, `GET /players/:id`); **popolato con dati reali** (663 giocatori) tramite il connettore Fantacalcio.it in produzione; nessuna UI di dettaglio giocatore |
+| Sistema di aggiornamento / scraping (sez. 5) | 🚧 | Pipeline completa: `POST /import/run` (pulsante "Aggiorna Database" in Dashboard) orchestra connettori modulari (`ImportConnector`) e fa upsert con source/reliability. **Connettore Fantacalcio.it (quotazioni) verificato in produzione: 663/663 giocatori importati correttamente.** FSTATS e Fantacalciopedia sono ancora stub che riportano "skipped" (vedi §8) |
 | Transfer Engine (sez. 6) | ⬜ | Modello dati presente (`Transfer`), motore di calcolo impatto non implementato |
 | Rotation Engine (sez. 7) | ⬜ | Modello dati presente (`TeamRotationProfile`), coefficienti non calcolati |
 | Player Evaluation Engine (sez. 8) | ⬜ | Struttura `PlayerEvaluation` definita, algoritmi degli indici da scrivere |
@@ -151,6 +157,20 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   che attende il completamento di tutti i connettori. Se in futuro Playwright su più pagine la
   rende lenta, valutare di renderla asincrona con un job id e polling di stato, senza cambiare
   l'interfaccia `ImportConnector` sottostante.
+- **Migrazione da SQLite a PostgreSQL (Neon)**: necessaria per deployare su Vercel, le cui
+  function serverless hanno filesystem effimero (SQLite su file non è utilizzabile in
+  produzione). Vedi sez. 8 "Deploy" per i dettagli. I campi che erano `String` con JSON
+  serializzato manualmente (per l'assenza del tipo `Json` in Prisma su SQLite) sono rimasti
+  `String` anche su Postgres per non introdurre un secondo cambiamento contestuale: **Postgres
+  supporterebbe il tipo `Json` nativo di Prisma**, quindi è un refactor pulito disponibile per
+  il futuro (rimuoverebbe il bisogno di `league-mapper.ts`), ma non è stato fatto ora.
+- **Deploy su Vercel via GitHub, non via upload manuale**: il progetto Vercel `sedinho` è
+  collegato al repo GitHub con branch di produzione `main` (vedi sez. 8). Un `git push` su
+  `main` innesca da solo un deploy automatico in produzione — **non serve invocare deploy
+  manuali** (il tool di upload diretto dei file è stato usato solo per il primissimo deploy,
+  prima che il progetto Vercel esistesse, ed è anche la causa del bug di routing su
+  `api/[...path].ts` descritto in sez. 8: quel percorso di deploy non passa dalla build da
+  git e ha trattato il nome file con parentesi in modo diverso).
 
 ## 6. Convenzioni di sviluppo
 
@@ -171,37 +191,75 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 ## 7. Come sviluppare in locale
 
 ```bash
-npm install                       # installa tutte le workspace
+npm install                       # installa tutte le workspace (genera anche il client Prisma via postinstall)
 
-# Backend
-cp apps/api/.env.example apps/api/.env
-npm run prisma:generate           # genera il client Prisma
-npm run prisma:migrate            # crea/applica le migrazioni su SQLite
+# Backend — serve un Postgres (Neon consigliato, coerente con la produzione)
+cp apps/api/.env.example apps/api/.env   # compilare DATABASE_URL (pooled) e DIRECT_URL (diretta)
+npm run prisma:migrate            # crea/applica le migrazioni
 npm run dev:api                   # avvia Fastify su :3001
 
 # Frontend (in un altro terminale)
 npm run dev:web                   # avvia Vite su :5173 (proxy /api → :3001)
 ```
 
-## 8. Prossimi passi consigliati
+Nota: il DB di sviluppo può essere un branch Neon separato da quello di produzione (Neon
+supporta il branching del database), oppure un Postgres locale — basta che `schema.prisma`
+resti `provider = "postgresql"`.
 
-1. **Testare e correggere il connettore Fantacalcio.it in locale** (`npm run dev:api` sulla
-   propria macchina, poi `POST /import/run` o il pulsante "Aggiorna Database" in Dashboard):
-   i selettori CSS in `import/connectors/fantacalcioIt.ts` non sono mai stati verificati dal
-   vivo. Se il connettore ritorna "Nessun record estratto", il markup del sito è diverso da
-   quanto stimato: ispezionare la pagina reale e aggiornare l'oggetto `SELECTORS` in cima al
-   file.
-2. Completare i connettori stub FSTATS (`import/connectors/fstats.ts`, richiede Playwright
+## 8. Deploy (Vercel + Neon)
+
+Sedinho è deployato in produzione su **Vercel** (frontend + API come function serverless)
+con database **Neon** (Postgres). URL produzione: `sedinho.vercel.app`.
+
+**Perché**: il sandbox di sviluppo di questa sessione non ha accesso a internet generico
+(vedi §5), quindi gli scraping connector non erano testabili dal vivo qui. Vercel invece ha
+accesso reale a internet, quindi diventa anche l'ambiente per verificare/correggere i
+connettori (vedi il caso Fantacalcio.it sotto).
+
+**Architettura**:
+- Repo GitHub `ciao-madesign/Sedinho` collegato a Vercel (progetto `sedinho`, team
+  `ciao-madesigns-projects`). **Branch di produzione: `main`** — un push su `main` innesca
+  un deploy automatico in produzione; push su altri branch generano deploy "preview".
+- `vercel.json` (root): `buildCommand` costruisce `packages/shared` → `apps/api` → esegue
+  `prisma migrate deploy` → costruisce `apps/web`; `outputDirectory: apps/web/dist`;
+  `rewrites`: `/api/:path*` → `/api/index` (function), tutto il resto → `/index.html` (SPA).
+- `api/index.ts` (root, **non** `apps/api`): unica function serverless Vercel, importa
+  `buildApp` da `@sedinho/api` (`apps/api/package.json` espone `main`/`exports` verso
+  `dist/app.js`) e inoltra ogni richiesta con `app.server.emit("request", req, res)` dopo
+  aver rimosso il prefisso `/api` da `req.url` (stessa convenzione del proxy Vite in dev).
+  **Nota**: inizialmente il file si chiamava `api/[...path].ts` (convenzione catch-all
+  dinamica) ma il routing multi-segmento (es. `/api/import/run`) falliva con 404 a livello
+  di piattaforma Vercel quando deployato — sostituito con nome fisso `api/index.ts` +
+  rewrite esplicito, molto più affidabile.
+- Env var richieste sul progetto Vercel: `DATABASE_URL` (connection string Neon *pooled*,
+  con `?pgbouncer=true&connection_limit=1`) e `DIRECT_URL` (connection string Neon
+  *non-pooled*, usata da `prisma migrate deploy` in fase di build). Non gestibili via tool:
+  vanno impostate manualmente da Vercel → Project Settings → Environment Variables.
+- Progetto Neon `sedinho` isolato dagli altri progetti dell'account (`easydoc`, `Adapta`).
+
+**Verificato in produzione**: `GET /api/health`, CRUD `League` via Postgres reale, e il
+connettore Fantacalcio.it (663 giocatori importati con successo dal listone reale — i
+selettori CSS erano sbagliati al primo tentativo, corretti ispezionando il markup reale
+tramite una rotta di debug temporanea deployata apposta, dato che nemmeno questa sessione
+può raggiungere fantacalcio.it direttamente).
+
+## 9. Prossimi passi consigliati
+
+1. Completare i connettori stub FSTATS (`import/connectors/fstats.ts`, richiede Playwright
    per il rendering client-side) e Fantacalciopedia (`import/connectors/fantacalciopedia.ts`,
-   probabilmente Cheerio basta) seguendo le istruzioni nei commenti di ciascun file.
-3. Implementare il Player Evaluation Engine (sez. 8) come modulo puro/testabile in
+   probabilmente Cheerio basta). Stessa tecnica usata per Fantacalcio.it: se serve vedere il
+   markup reale, aggiungere una rotta di debug temporanea, deployare, ispezionare, rimuovere.
+2. Implementare il Player Evaluation Engine (sez. 8 della spec) come modulo puro/testabile in
    `apps/api/src/lib/` (o pacchetto dedicato `packages/engine` se cresce), separato
    dalle rotte HTTP, così da restare sostituibile (principio "Modularità"). Ora che l'import
-   può popolare `Player`/`SeasonStats` reali, questo motore ha dati su cui lavorare.
-4. Collegare la Dashboard a dati reali con i filtri richiesti (sez. 9) prima di
+   ha popolato `Player` con dati reali, questo motore ha dati su cui lavorare (mancano ancora
+   `SeasonStats`/statistiche, che verranno da FSTATS).
+3. Collegare la Dashboard a dati reali con i filtri richiesti (sez. 9 della spec) prima di
    investire nel sistema grafico (sez. 10).
-5. Aggiungere una vista di dettaglio giocatore in `apps/web`, collegata a
-   `GET /players/:id` (già pronta lato API).
-6. Valutare se/quando introdurre il parsing assistito da AI del regolamento (BYOK,
+4. Aggiungere una vista di dettaglio giocatore in `apps/web`, collegata a
+   `GET /players/:id` (già pronta lato API, e ora popolata con dati reali).
+5. Valutare se/quando introdurre il parsing assistito da AI del regolamento (BYOK,
    vedi §5): non urgente, il form strutturato manuale del Setup Wizard copre già il
    caso d'uso attuale.
+6. Impostare `main` come default branch su GitHub (Settings → Branches) se non già fatto:
+   coerente con l'essere anche il branch di produzione Vercel.
