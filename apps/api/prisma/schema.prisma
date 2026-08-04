@@ -46,6 +46,7 @@ model Player {
   foot                  String?  // left | right | both
   availability          String   @default("available") // available | injured | suspended | doubtful
   estimatedRecoveryDate DateTime?
+  initialQuotation      Int?     // quotazione ufficiale di partenza (listone), crediti, modalita Classic
 
   source      String
   updatedAt   DateTime @updatedAt

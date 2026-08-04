@@ -10,6 +10,9 @@ export interface Player {
   foot?: "left" | "right" | "both";
   availability: PlayerAvailability;
   estimatedRecoveryDate?: string;
+  /** Quotazione ufficiale di partenza (listone), in crediti. Solo modalità Classic per ora:
+   * i ruoli Mantra (più granulari di P/D/C/A) non sono ancora modellati (vedi CLAUDE.md). */
+  initialQuotation?: number;
   meta: DataSourceMeta;
 }
 

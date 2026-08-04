@@ -1,4 +1,4 @@
-import type { LeagueConfig, LeagueDraft } from "@sedinho/shared";
+import type { ImportRunSummary, LeagueConfig, LeagueDraft } from "@sedinho/shared";
 
 const API_BASE = "/api";
 
@@ -35,4 +35,8 @@ export const leaguesApi = {
   get: (id: string) => api.get<LeagueConfig>(`/leagues/${id}`),
   create: (draft: LeagueDraft) => api.post<LeagueConfig>("/leagues", draft),
   update: (id: string, draft: LeagueDraft) => api.put<LeagueConfig>(`/leagues/${id}`, draft),
+};
+
+export const importApi = {
+  run: () => api.post<ImportRunSummary>("/import/run", {}),
 };

@@ -32,7 +32,7 @@ supporto decisionale → report finale. Principi non negoziabili (sez. 2):
 | Routing frontend | react-router-dom | |
 | Tipi condivisi | `packages/shared` (workspace npm) | Unica fonte di verità per i tipi di dominio, usata sia da `apps/api` che da `apps/web` |
 | Package manager | npm workspaces (monorepo) | root `package.json` con `workspaces: ["apps/*", "packages/*"]` |
-| Scraping (futuro) | Playwright + Cheerio | Non ancora implementato: verrà invocato solo dal pulsante "Aggiorna Database", mai in automatico |
+| Scraping | Playwright + Cheerio | Connettori modulari in `apps/api/src/import/connectors/`, invocati solo dal pulsante "Aggiorna Database" (mai in automatico) |
 
 ## 3. Struttura del repository
 
@@ -45,7 +45,9 @@ Sedinho/
 │   │       ├── index.ts      # entrypoint, registra le rotte
 │   │       ├── db/prisma.ts  # client Prisma condiviso
 │   │       ├── lib/league-mapper.ts  # confine JSON-string <-> tipi condivisi (SQLite non ha il tipo Json)
-│   │       └── routes/       # health, leagues (GET/POST/PUT), players (altre da aggiungere)
+│   │       ├── import/       # pipeline "Aggiorna Database": types, upsert, runImport, connectors/
+│   │       │   └── connectors/   # fantacalcioIt (reale), fstats + fantacalciopedia (stub, vedi §5)
+│   │       └── routes/       # health, leagues (GET/POST/PUT), players, import (POST /import/run)
 │   └── web/                  # Frontend Vite + React
 │       └── src/
 │           ├── App.tsx       # routing
@@ -71,8 +73,8 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 | Tipi di dominio condivisi (`packages/shared`) | ✅ | League (+ EntryFee/PrizePool/CupFormat), Player, SeasonStats, Hierarchy, SetPieces, TeamRotation, Transfer, PlayerEvaluation, Auction/Market/Decision |
 | Schema DB (Prisma/SQLite) | ✅ | Rispecchia i tipi condivisi; 2 migrazioni applicate (`init`, `league-financials`) |
 | Setup Wizard (sez. 3) | ✅ | 4 step reali (Struttura, Economia, Regolamento, Riepilogo) in `SetupWizardPage` + `components/setup-wizard/*`, collegati a `POST`/`PUT /leagues`; precompilato (editabile) con il regolamento reale "Travedona Serie A"; regole (`ParsedRule[]`) inserite tramite form strutturato manuale, non parsing automatico (vedi §5) |
-| Database centrale giocatori (sez. 4) | 🚧 | Schema pronto, API di lettura (`GET /players`, `GET /players/:id`); nessun dato reale, nessuna UI di dettaglio giocatore |
-| Sistema di aggiornamento / scraping (sez. 5) | ⬜ | Da progettare: pulsante "Aggiorna Database", job di import con fonte/data/affidabilità |
+| Database centrale giocatori (sez. 4) | 🚧 | Schema pronto (incl. `initialQuotation`), API di lettura (`GET /players`, `GET /players/:id`); popolabile solo tramite import (nessun dato reale ancora, i connettori vanno testati/rifiniti in locale — vedi §5); nessuna UI di dettaglio giocatore |
+| Sistema di aggiornamento / scraping (sez. 5) | 🚧 | Pipeline completa: `POST /import/run` (pulsante "Aggiorna Database" in Dashboard) orchestra connettori modulari (`ImportConnector`) e fa upsert con source/reliability. Connettore Fantacalcio.it (quotazioni) scritto ma **non verificato dal vivo** (sandbox senza accesso a internet, selettori da confermare in locale); FSTATS e Fantacalciopedia sono stub che riportano "skipped" finché non completati |
 | Transfer Engine (sez. 6) | ⬜ | Modello dati presente (`Transfer`), motore di calcolo impatto non implementato |
 | Rotation Engine (sez. 7) | ⬜ | Modello dati presente (`TeamRotationProfile`), coefficienti non calcolati |
 | Player Evaluation Engine (sez. 8) | ⬜ | Struttura `PlayerEvaluation` definita, algoritmi degli indici da scrivere |
@@ -126,6 +128,29 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   informazioni reali del regolamento fornito dall'utente (quota d'iscrizione, montepremi,
   struttura di un torneo/coppa parallelo). Vanno tenuti opzionali: un regolamento senza questi
   elementi non deve fallire la creazione della lega.
+- **Il sandbox di sviluppo (Claude Code on the web) non ha accesso a internet generico**: solo
+  un allowlist ristretto (npm, GitHub, Anthropic, poco altro). fantacalcio.it, fstats.it e
+  fantacalciopedia.com sono bloccati dalla policy di rete (403 a livello di proxy). Di
+  conseguenza i connettori di scraping **non possono essere testati dal vivo in questa
+  sessione**: vanno scritti qui e verificati/corretti eseguendo `npm run dev:api` in locale
+  (dove presumibilmente internet è libero) o in un ambiente con policy meno restrittiva. Prima
+  di investire tempo a "indovinare" selettori CSS per un sito complesso, conviene chiedere
+  all'utente HTML/markup reale, oppure accettare che il primo giro vada rifinito in locale.
+- **Connettori di import come moduli intercambiabili** (`apps/api/src/import/connectors/`,
+  interfaccia `ImportConnector` in `import/types.ts`): ogni fonte implementa `run(): Promise<
+  PlayerImportRecord[]>` e viene registrata nell'elenco in `import/runImport.ts`. Aggiungere
+  una fonte non richiede toccare l'orchestratore. Un connettore non ancora completato lancia
+  `ConnectorNotImplementedError` (riconosciuto dall'orchestratore come stato "skipped", distinto
+  da "failed") invece di restituire dati finti o silenziosamente vuoti.
+- **Matching giocatore per (name, team) esatto** in fase di upsert (`import/upsert.ts`): non
+  esiste ancora un id esterno persistito per fonte. Fonti che usano una grafia diversa per lo
+  stesso giocatore (es. accenti, abbreviazioni) creeranno record duplicati. Limite noto e
+  accettato per ora; da risolvere con una tabella di mapping dedicata (`PlayerExternalRef` o
+  simile) se/quando diventa un problema pratico con dati reali.
+- **`POST /import/run` sincrona**: per la scala di un singolo utente/lega va bene una richiesta
+  che attende il completamento di tutti i connettori. Se in futuro Playwright su più pagine la
+  rende lenta, valutare di renderla asincrona con un job id e polling di stato, senza cambiare
+  l'interfaccia `ImportConnector` sottostante.
 
 ## 6. Convenzioni di sviluppo
 
@@ -160,16 +185,23 @@ npm run dev:web                   # avvia Vite su :5173 (proxy /api → :3001)
 
 ## 8. Prossimi passi consigliati
 
-1. Definire il formato di import dati per il pulsante "Aggiorna Database" (sez. 5),
-   anche solo da file CSV/JSON caricati manualmente, prima di introdurre scraping.
-   Questo sblocca l'avere dati giocatore reali su cui costruire tutto il resto.
-2. Implementare il Player Evaluation Engine (sez. 8) come modulo puro/testabile in
+1. **Testare e correggere il connettore Fantacalcio.it in locale** (`npm run dev:api` sulla
+   propria macchina, poi `POST /import/run` o il pulsante "Aggiorna Database" in Dashboard):
+   i selettori CSS in `import/connectors/fantacalcioIt.ts` non sono mai stati verificati dal
+   vivo. Se il connettore ritorna "Nessun record estratto", il markup del sito è diverso da
+   quanto stimato: ispezionare la pagina reale e aggiornare l'oggetto `SELECTORS` in cima al
+   file.
+2. Completare i connettori stub FSTATS (`import/connectors/fstats.ts`, richiede Playwright
+   per il rendering client-side) e Fantacalciopedia (`import/connectors/fantacalciopedia.ts`,
+   probabilmente Cheerio basta) seguendo le istruzioni nei commenti di ciascun file.
+3. Implementare il Player Evaluation Engine (sez. 8) come modulo puro/testabile in
    `apps/api/src/lib/` (o pacchetto dedicato `packages/engine` se cresce), separato
-   dalle rotte HTTP, così da restare sostituibile (principio "Modularità").
-3. Collegare la Dashboard a dati reali con i filtri richiesti (sez. 9) prima di
+   dalle rotte HTTP, così da restare sostituibile (principio "Modularità"). Ora che l'import
+   può popolare `Player`/`SeasonStats` reali, questo motore ha dati su cui lavorare.
+4. Collegare la Dashboard a dati reali con i filtri richiesti (sez. 9) prima di
    investire nel sistema grafico (sez. 10).
-4. Aggiungere una vista di dettaglio giocatore in `apps/web`, collegata a
+5. Aggiungere una vista di dettaglio giocatore in `apps/web`, collegata a
    `GET /players/:id` (già pronta lato API).
-5. Valutare se/quando introdurre il parsing assistito da AI del regolamento (BYOK,
+6. Valutare se/quando introdurre il parsing assistito da AI del regolamento (BYOK,
    vedi §5): non urgente, il form strutturato manuale del Setup Wizard copre già il
    caso d'uso attuale.

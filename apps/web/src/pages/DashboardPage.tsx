@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { LeagueConfig } from "@sedinho/shared";
 import { leaguesApi } from "../lib/api.js";
+import { ImportPanel } from "../components/ImportPanel.js";
 
 const sections = [
   "Migliori occasioni",
@@ -53,6 +54,7 @@ export function DashboardPage() {
           </p>
         )}
       </div>
+      <ImportPanel />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {sections.map((section) => (
           <div key={section} className="rounded-lg border border-slate-800 bg-slate-900 p-4">

@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import { healthRoutes } from "./routes/health.js";
 import { leagueRoutes } from "./routes/leagues.js";
 import { playerRoutes } from "./routes/players.js";
+import { importRoutes } from "./routes/import.js";
 
 const app = Fastify({ logger: true });
 
@@ -11,6 +12,7 @@ await app.register(cors, { origin: true });
 await app.register(healthRoutes);
 await app.register(leagueRoutes);
 await app.register(playerRoutes);
+await app.register(importRoutes);
 
 const port = Number(process.env.PORT ?? 3001);
 
