@@ -5,7 +5,13 @@ import { buildApp } from "@sedinho/api";
  * @sedinho/api (sez. "Deploy" in CLAUDE.md). L'istanza viene riutilizzata tra invocazioni
  * quando il container resta "caldo" (evita di ricreare il pool di connessioni Prisma ad
  * ogni richiesta). Le rotte Fastify sono registrate senza prefisso /api (stessa
- * convenzione del proxy di sviluppo Vite): il prefisso va rimosso prima di inoltrare. */
+ * convenzione del proxy di sviluppo Vite): il prefisso va rimosso prima di inoltrare.
+ *
+ * Nome file fisso (non `[...path].ts`) perche' il routing dinamico a parentesi quadre
+ * non veniva risolto correttamente come catch-all multi-segmento quando deployato tramite
+ * il tool di upload diretto (le richieste a piu' segmenti, es. /api/import/run, davano
+ * 404 a livello di piattaforma Vercel pur funzionando /api/leagues a un segmento). Il
+ * routing verso questo file e' invece esplicito via `rewrites` in vercel.json. */
 let appPromise: ReturnType<typeof buildApp> | undefined;
 
 function getApp() {
