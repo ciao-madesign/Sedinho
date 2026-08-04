@@ -44,13 +44,16 @@ Sedinho/
 │   │   └── src/
 │   │       ├── index.ts      # entrypoint, registra le rotte
 │   │       ├── db/prisma.ts  # client Prisma condiviso
-│   │       └── routes/       # health, leagues, players (altre da aggiungere)
+│   │       ├── lib/league-mapper.ts  # confine JSON-string <-> tipi condivisi (SQLite non ha il tipo Json)
+│   │       └── routes/       # health, leagues (GET/POST/PUT), players (altre da aggiungere)
 │   └── web/                  # Frontend Vite + React
 │       └── src/
 │           ├── App.tsx       # routing
-│           ├── components/   # Layout, componenti UI condivisi
+│           ├── components/
+│           │   ├── Layout.tsx
+│           │   └── setup-wizard/   # StructureStep, EconomyStep, RulesStep, SummaryStep, defaultDraft
 │           ├── pages/        # DashboardPage, SetupWizardPage, ...
-│           └── lib/api.ts    # client fetch verso /api (proxy Vite → :3001)
+│           └── lib/api.ts    # client fetch tipizzato verso /api (proxy Vite → :3001)
 ├── packages/
 │   └── shared/                # Tipi TS condivisi (League, Player, Evaluation, Auction, ...)
 ├── docs/
@@ -65,15 +68,15 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 | Area (sez. spec) | Stato | Note |
 |---|---|---|
 | Monorepo, tooling, CLAUDE.md | ✅ | Fondamenta poste in questa sessione |
-| Tipi di dominio condivisi (`packages/shared`) | ✅ | League, Player, SeasonStats, Hierarchy, SetPieces, TeamRotation, Transfer, PlayerEvaluation, Auction/Market/Decision |
-| Schema DB (Prisma/SQLite) | ✅ | Rispecchia i tipi condivisi; migrazioni non ancora generate (richiede `npm run prisma:migrate`) |
-| Setup Wizard (sez. 3) | 🚧 | UI a step placeholder (`SetupWizardPage`), API `POST /leagues` pronta, ma: nessun parsing automatico del regolamento testuale, nessuna persistenza da UI |
+| Tipi di dominio condivisi (`packages/shared`) | ✅ | League (+ EntryFee/PrizePool/CupFormat), Player, SeasonStats, Hierarchy, SetPieces, TeamRotation, Transfer, PlayerEvaluation, Auction/Market/Decision |
+| Schema DB (Prisma/SQLite) | ✅ | Rispecchia i tipi condivisi; 2 migrazioni applicate (`init`, `league-financials`) |
+| Setup Wizard (sez. 3) | ✅ | 4 step reali (Struttura, Economia, Regolamento, Riepilogo) in `SetupWizardPage` + `components/setup-wizard/*`, collegati a `POST`/`PUT /leagues`; precompilato (editabile) con il regolamento reale "Travedona Serie A"; regole (`ParsedRule[]`) inserite tramite form strutturato manuale, non parsing automatico (vedi §5) |
 | Database centrale giocatori (sez. 4) | 🚧 | Schema pronto, API di lettura (`GET /players`, `GET /players/:id`); nessun dato reale, nessuna UI di dettaglio giocatore |
 | Sistema di aggiornamento / scraping (sez. 5) | ⬜ | Da progettare: pulsante "Aggiorna Database", job di import con fonte/data/affidabilità |
 | Transfer Engine (sez. 6) | ⬜ | Modello dati presente (`Transfer`), motore di calcolo impatto non implementato |
 | Rotation Engine (sez. 7) | ⬜ | Modello dati presente (`TeamRotationProfile`), coefficienti non calcolati |
 | Player Evaluation Engine (sez. 8) | ⬜ | Struttura `PlayerEvaluation` definita, algoritmi degli indici da scrivere |
-| Dashboard (sez. 9) | 🚧 | Layout con sezioni placeholder, nessun collegamento a dati reali/filtri |
+| Dashboard (sez. 9) | 🚧 | Header collegato alla League reale (nome, partecipanti, budget, rosa) con CTA a `/setup` se non configurata; sezioni ancora placeholder, nessun filtro |
 | Sistema grafico (sez. 10) | ⬜ | Recharts installato, nessun grafico ancora implementato |
 | Live Auction Engine (sez. 11) | ⬜ | Modelli `Auction`/`AuctionEntry` presenti, nessuna UI/logica |
 | Profilazione avversari (sez. 12) | ⬜ | Modello `OpponentProfile` presente, calcolo non implementato |
@@ -99,6 +102,30 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 - **Nessun job schedulato/automatico**: qualunque futura integrazione di scraping
   (Playwright/Cheerio) deve essere invocata solo da un'azione utente esplicita
   ("Aggiorna Database"), mai da cron/interval.
+- **Singola lega attiva**: Sedinho è un'app personale per un singolo fantallenatore, non
+  multi-lega. L'API impone l'invariante lato server: `POST /leagues` risponde `409` se una
+  `League` esiste già (suggerendo `PUT /leagues/:id`). Il frontend non ha un selettore lega:
+  `SetupWizardPage` carica automaticamente la lega esistente (se presente) in modalità
+  modifica, altrimenti parte da una bozza precompilata.
+- **SQLite via Prisma non supporta il tipo `Json`** (a differenza di Postgres): tutti i campi
+  strutturati (`rosterComposition`, `parsedRules`, `entryFee`, `prizePool`, `cupFormat`, ...)
+  sono colonne `String` con JSON serializzato manualmente. Il confine di
+  serializzazione/deserializzazione è isolato in `apps/api/src/lib/league-mapper.ts`: le rotte
+  e il resto del codice lavorano sempre con i tipi condivisi tipizzati, mai con le stringhe
+  JSON grezze. Se si aggiungono altri modelli con campi strutturati, seguire lo stesso pattern
+  (mapper dedicato) invece di esporre le stringhe serializzate nelle risposte API.
+- **Regole del regolamento (`ParsedRule[]`) inserite via form strutturato, non parsing AI**:
+  su richiesta esplicita dell'utente, il Setup Wizard non chiama nessun LLM per estrarre le
+  regole dal testo del regolamento. L'utente compila categoria + descrizione + `effect` (JSON
+  libero) per ogni regola tramite `RulesStep`; il testo integrale del regolamento resta comunque
+  salvato in `rulesText` come riferimento e come base per un eventuale parsing assistito da AI
+  futuro, opzionale e BYOK (l'utente fornirebbe la propria API key, non stiamo integrando
+  nessuna chiamata LLM lato server per ora).
+- **`LeagueConfig` esteso con dati amministrativi opzionali** (`entryFee`, `prizePool`,
+  `cupFormat`): non usati da nessun engine di valutazione/decisione, servono solo a non perdere
+  informazioni reali del regolamento fornito dall'utente (quota d'iscrizione, montepremi,
+  struttura di un torneo/coppa parallelo). Vanno tenuti opzionali: un regolamento senza questi
+  elementi non deve fallire la creazione della lega.
 
 ## 6. Convenzioni di sviluppo
 
@@ -133,14 +160,16 @@ npm run dev:web                   # avvia Vite su :5173 (proxy /api → :3001)
 
 ## 8. Prossimi passi consigliati
 
-1. Generare la prima migrazione Prisma e verificare il ciclo CRUD di `League`.
-2. Costruire il Setup Wizard reale: form multi-step collegato a `POST /leagues`,
-   inclusa una prima versione (anche semplice/manuale) del parsing del regolamento
-   in `ParsedRule[]`.
-3. Definire il formato di import dati per il pulsante "Aggiorna Database" (sez. 5),
+1. Definire il formato di import dati per il pulsante "Aggiorna Database" (sez. 5),
    anche solo da file CSV/JSON caricati manualmente, prima di introdurre scraping.
-4. Implementare il Player Evaluation Engine (sez. 8) come modulo puro/testabile in
+   Questo sblocca l'avere dati giocatore reali su cui costruire tutto il resto.
+2. Implementare il Player Evaluation Engine (sez. 8) come modulo puro/testabile in
    `apps/api/src/lib/` (o pacchetto dedicato `packages/engine` se cresce), separato
    dalle rotte HTTP, così da restare sostituibile (principio "Modularità").
-5. Collegare la Dashboard a dati reali con i filtri richiesti (sez. 9) prima di
+3. Collegare la Dashboard a dati reali con i filtri richiesti (sez. 9) prima di
    investire nel sistema grafico (sez. 10).
+4. Aggiungere una vista di dettaglio giocatore in `apps/web`, collegata a
+   `GET /players/:id` (già pronta lato API).
+5. Valutare se/quando introdurre il parsing assistito da AI del regolamento (BYOK,
+   vedi §5): non urgente, il form strutturato manuale del Setup Wizard copre già il
+   caso d'uso attuale.

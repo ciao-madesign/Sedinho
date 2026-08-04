@@ -25,6 +25,9 @@ model League {
   callOrder          String   // JSON: CallOrderRule
   rulesText          String
   parsedRules        String   // JSON: ParsedRule[]
+  entryFee           String?  // JSON: EntryFeeConfig
+  prizePool          String?  // JSON: PrizePoolEntry[]
+  cupFormat          String?  // JSON: CupFormat
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 }
