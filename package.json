@@ -2,6 +2,7 @@
   "name": "sedinho",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
   "description": "Sedinho - piattaforma di analisi e supporto decisionale per il fantacalcio",
   "workspaces": [
     "apps/*",
@@ -12,6 +13,7 @@
     "dev:web": "npm run dev --workspace=apps/web",
     "build": "npm run build --workspace=packages/shared && npm run build --workspace=apps/api && npm run build --workspace=apps/web",
     "build:shared": "npm run build --workspace=packages/shared",
+    "postinstall": "prisma generate --schema=apps/api/prisma/schema.prisma",
     "lint": "npm run lint --workspace=apps/api && npm run lint --workspace=apps/web",
     "typecheck": "npm run typecheck --workspace=apps/api && npm run typecheck --workspace=apps/web",
     "test": "npm run test --workspace=apps/api --if-present && npm run test --workspace=apps/web --if-present",

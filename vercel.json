@@ -1,0 +1,9 @@
+{
+  "framework": null,
+  "buildCommand": "npm run build --workspace=packages/shared && npm run build --workspace=apps/api && npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma && npm run build --workspace=apps/web",
+  "outputDirectory": "apps/web/dist",
+  "installCommand": "npm install",
+  "rewrites": [
+    { "source": "/((?!api/|assets/).*)", "destination": "/index.html" }
+  ]
+}

@@ -1,13 +1,16 @@
-// Schema iniziale del database centrale di Sedinho (vedi CLAUDE.md e specs/funzionale-v1.md).
-// Provider SQLite per lo sviluppo locale; pensato per essere migrabile a PostgreSQL (sez. 17).
+// Schema del database centrale di Sedinho (vedi CLAUDE.md e specs/funzionale-v1.md).
+// Provider PostgreSQL (Neon), come previsto dalla spec (sez. 17). binaryTargets include il
+// runtime delle funzioni serverless di Vercel oltre a quello locale di sviluppo.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ---------------------------------------------------------------------------
