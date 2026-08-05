@@ -47,15 +47,16 @@ export interface ParticipantAuctionSummary {
 }
 
 /** Stato completo dell'asta attiva, cosi' come restituito da `GET /auctions/active` — tutto
- * cio' che serve alla console live in un'unica chiamata (sez. 11). "Valore di mercato" e
- * "probabilità residue" (richiesti dalla spec) non ci sono ancora: dipendono dal Market Engine
- * (sez. 13), non ancora implementato — nessun dato inventato nel frattempo. */
+ * cio' che serve alla console live in un'unica chiamata (sez. 11), incluso lo stato del
+ * Market Engine (sez. 13). "Migliori opportunità" (richiesto dalla spec) non c'è ancora:
+ * dipende dal Decision Engine (sez. 14), non ancora implementato. */
 export interface ActiveAuctionState {
   id: string;
   leagueId: string;
   startedAt: string;
   entries: AuctionEntryView[];
   participants: ParticipantAuctionSummary[];
+  market: MarketState;
 }
 
 /** Profilo di un partecipante, costruito e aggiornato in tempo reale (sez. 12). */

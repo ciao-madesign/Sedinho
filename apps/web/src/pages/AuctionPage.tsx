@@ -3,6 +3,7 @@ import type {
   ActiveAuctionState,
   AuctionEntryView,
   LeagueConfig,
+  MarketState,
   Participant,
   PlayerListItem,
   PlayerRole,
@@ -21,9 +22,9 @@ interface SoldInfo {
   buyerId: string;
 }
 
-/** Confronta il prezzo pagato con la quotazione ufficiale (oggi l'unico riferimento di valore
- * disponibile, vedi value.ts: expectedAuctionPrice === initialQuotation finché il Market
- * Engine, sez. 13, non esiste). Un'euristica dichiarata, non un giudizio definitivo. */
+/** Confronta il prezzo pagato con la quotazione ufficiale del singolo giocatore (non con lo
+ * stato aggregato del Market Engine, sez. 13, vedi MarketPanel più sotto: granularità diversa,
+ * questo è un giudizio per-inserimento). Un'euristica dichiarata, non un giudizio definitivo. */
 function rateOperation(price: number, quotation: number | null) {
   if (quotation === null || quotation === 0) {
     return {
@@ -56,6 +57,95 @@ function rateOperation(price: number, quotation: number | null) {
     dot: "bg-amber-400",
     delta,
   };
+}
+
+function formatSignedPercent(ratio: number): string {
+  const pct = Math.round(ratio * 100);
+  return `${pct > 0 ? "+" : ""}${pct}%`;
+}
+
+/** Pannello del Market Engine (sez. 13): tutti e 6 i parametri della spec, calcolati
+ * esclusivamente sugli inserimenti già registrati in questa asta (vedi
+ * apps/api/src/lib/market/computeMarketState.ts). "Temperatura" è un'euristica dichiarata
+ * (sovra/sotto-pagamento sugli ultimi 5 inserimenti), non una probabilità calibrata. */
+function MarketPanel({ market }: { market: MarketState }) {
+  const temperature =
+    market.marketTemperature >= 0.65
+      ? { label: "Caldo", tone: "text-amber-400" }
+      : market.marketTemperature <= 0.35
+        ? { label: "Freddo", tone: "text-sky-400" }
+        : { label: "In linea", tone: "text-slate-300" };
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-wide text-slate-500">
+            Inflazione prezzi
+          </div>
+          <div
+            className={`text-sm font-medium tabular-nums ${
+              market.priceInflation > 0
+                ? "text-amber-400"
+                : market.priceInflation < 0
+                  ? "text-emerald-400"
+                  : "text-slate-300"
+            }`}
+          >
+            {formatSignedPercent(market.priceInflation)}
+          </div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase tracking-wide text-slate-500">
+            Temperatura mercato
+          </div>
+          <div className={`text-sm font-medium ${temperature.tone}`}>{temperature.label}</div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase tracking-wide text-slate-500">
+            Budget residuo totale
+          </div>
+          <div className="text-sm font-medium tabular-nums text-slate-300">
+            {formatCredits(market.remainingBudgetTotal)}
+          </div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase tracking-wide text-slate-500">Rilancio medio</div>
+          <div className="text-sm font-medium tabular-nums text-slate-300">
+            {formatCredits(market.averageBidValue)}
+          </div>
+        </div>
+        <div className="ml-auto flex gap-4">
+          {ROLE_ORDER.map((role) => {
+            const scarcity = market.starterScarcityByRole[role];
+            const deflation = market.roleDeflation[role];
+            return (
+              <div key={role} className="text-center">
+                <div className="text-[11px] uppercase tracking-wide text-slate-500">{role}</div>
+                <div className="text-xs tabular-nums text-slate-400">
+                  {scarcity !== undefined ? `${Math.round(scarcity * 100)}% titolari presi` : "—"}
+                </div>
+                {deflation !== undefined && (
+                  <div
+                    className={`text-[11px] tabular-nums ${
+                      deflation > 0 ? "text-amber-400" : "text-emerald-400"
+                    }`}
+                  >
+                    {formatSignedPercent(deflation)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <p className="mt-3 text-[11px] text-slate-600">
+        Calcolato solo sugli inserimenti già fatti in questa asta — nessuna proiezione su quelli
+        futuri. "Migliori opportunità" richiesto dalla spec dipende dal Decision Engine (sez.
+        14), non ancora implementato.
+      </p>
+    </div>
+  );
 }
 
 function NameParticipantsForm({
@@ -282,11 +372,13 @@ function PlayersBrowserPanel({
 function EntryBar({
   selectedPlayer,
   participants,
+  market,
   onClear,
   onSubmit,
 }: {
   selectedPlayer: PlayerListItem | null;
   participants: ActiveAuctionState["participants"];
+  market: MarketState;
   onClear: () => void;
   onSubmit: (price: number, buyerId: string) => Promise<void>;
 }) {
@@ -333,6 +425,23 @@ function EntryBar({
           <div className="font-medium">{selectedPlayer.name}</div>
           <div className="text-xs text-slate-500">
             {selectedPlayer.team} · quotazione {formatCredits(selectedPlayer.initialQuotation)}
+            {selectedPlayer.initialQuotation !== null &&
+              (() => {
+                const roleAdjustment =
+                  market.roleDeflation[selectedPlayer.role] ?? market.priceInflation;
+                if (roleAdjustment === 0) return null;
+                const adjusted = Math.round(
+                  selectedPlayer.initialQuotation * (1 + roleAdjustment),
+                );
+                return (
+                  <>
+                    {" · atteso a mercato "}
+                    <span className={roleAdjustment > 0 ? "text-amber-400" : "text-emerald-400"}>
+                      {formatCredits(adjusted)} ({formatSignedPercent(roleAdjustment)})
+                    </span>
+                  </>
+                );
+              })()}
           </div>
         </div>
         <button
@@ -651,6 +760,8 @@ export function AuctionPage() {
             </button>
           </div>
 
+          <MarketPanel market={auction.market} />
+
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[340px_1fr]">
             <PlayersBrowserPanel
               players={players}
@@ -663,6 +774,7 @@ export function AuctionPage() {
               <EntryBar
                 selectedPlayer={selectedPlayer}
                 participants={auction.participants}
+                market={auction.market}
                 onClear={() => setSelectedPlayer(null)}
                 onSubmit={handleAddEntry}
               />
@@ -682,9 +794,10 @@ export function AuctionPage() {
           </div>
 
           <p className="text-xs text-slate-500">
-            La valutazione dell'operazione confronta il prezzo pagato con la quotazione ufficiale
-            (unico riferimento disponibile oggi). "Valore di mercato" e "probabilità residue"
-            richiesti dalla spec dipendono dal Market Engine (sez. 13), non ancora implementato.
+            La valutazione per-giocatore confronta il prezzo pagato con la sua quotazione
+            ufficiale; il pannello di mercato sopra aggrega tutti gli inserimenti dell'asta
+            (sez. 13). "Migliori opportunità" richiesto dalla spec dipende dal Decision Engine
+            (sez. 14), non ancora implementato.
           </p>
         </div>
       )}

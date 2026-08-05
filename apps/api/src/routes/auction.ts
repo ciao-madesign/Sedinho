@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { ActiveAuctionState, ParticipantAuctionSummary, PlayerRole } from "@sedinho/shared";
 import { prisma } from "../db/prisma.js";
 import { toLeagueConfig } from "../lib/league-mapper.js";
+import { computeMarketState } from "../lib/market/computeMarketState.js";
 
 const ROLES: PlayerRole[] = ["P", "D", "C", "A"];
 
@@ -60,6 +61,37 @@ async function buildActiveAuctionState(auctionId: string): Promise<ActiveAuction
     };
   });
 
+  const remainingBudgetTotal = participantSummaries.reduce(
+    (sum, p) => sum + p.budgetRemaining,
+    0,
+  );
+
+  // Un titolare per giocatore (una fonte puo' avere scritto piu' righe PlayerHierarchy per lo
+  // stesso giocatore, vedi league-mapper.ts pattern analogo su GET /players): serve un elenco
+  // deduplicato per non gonfiare lo scarsità dei titolari.
+  const starterRows = await prisma.playerHierarchy.findMany({
+    where: { level: "starter" },
+    distinct: ["playerId"],
+    select: { playerId: true, player: { select: { role: true } } },
+  });
+  const soldPlayerIds = new Set(auction.entries.map((entry) => entry.playerId));
+  const starters = starterRows.map((row) => ({
+    role: row.player.role as PlayerRole,
+    sold: soldPlayerIds.has(row.playerId),
+  }));
+
+  const market = computeMarketState({
+    auctionId: auction.id,
+    entries: auction.entries.map((entry) => ({
+      role: entry.player.role as PlayerRole,
+      price: entry.price,
+      quotation: entry.player.initialQuotation ?? null,
+      timestamp: entry.timestamp.toISOString(),
+    })),
+    remainingBudgetTotal,
+    starters,
+  });
+
   return {
     id: auction.id,
     leagueId: auction.leagueId,
@@ -77,11 +109,13 @@ async function buildActiveAuctionState(auctionId: string): Promise<ActiveAuction
       buyer: { id: entry.buyer.id, name: entry.buyer.name },
     })),
     participants: participantSummaries,
+    market,
   };
 }
 
-/** Rotte per l'asta live (sez. 11). Nessun "valore di mercato"/"probabilità residue": dipendono
- * dal Market Engine (sez. 13), non ancora implementato — meglio ometterli che inventarli. */
+/** Rotte per l'asta live (sez. 11), incluso lo stato del Market Engine (sez. 13, vedi
+ * lib/market/computeMarketState.ts). "Migliori opportunità" resta assente: dipende dal Decision
+ * Engine (sez. 14), non ancora implementato — meglio ometterlo che inventarlo. */
 export async function auctionRoutes(app: FastifyInstance) {
   app.get("/participants", async (_request, reply) => {
     const league = await getSingleLeague();
