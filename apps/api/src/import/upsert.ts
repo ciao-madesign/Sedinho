@@ -57,7 +57,7 @@ export async function upsertPlayerImportRecords(
       const player = await findOrCreatePlayer(record, context);
       if (!player) {
         errors.push(
-          `Saltato "${record.name}" (${record.team}): nessun giocatore esistente e nessun ruolo fornito dalla fonte, impossibile crearne uno nuovo.`,
+          `Saltato "${record.name}" (${record.team}): nessun giocatore esistente trovato (match esatto o fuzzy) e questa fonte non puo' crearne uno nuovo.`,
         );
         continue;
       }

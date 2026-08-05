@@ -79,11 +79,11 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 | Tipi di dominio condivisi (`packages/shared`) | ✅ | League (+ EntryFee/PrizePool/CupFormat), Player, SeasonStats, Hierarchy, SetPieces, TeamRotation, Transfer, PlayerEvaluation, Auction/Market/Decision |
 | Schema DB (Prisma/SQLite) | ✅ | Rispecchia i tipi condivisi; 2 migrazioni applicate (`init`, `league-financials`) |
 | Setup Wizard (sez. 3) | ✅ | 4 step reali (Struttura, Economia, Regolamento, Riepilogo) in `SetupWizardPage` + `components/setup-wizard/*`, collegati a `POST`/`PUT /leagues`; precompilato (editabile) con il regolamento reale "Travedona Serie A"; regole (`ParsedRule[]`) inserite tramite form strutturato manuale, non parsing automatico (vedi §5) |
-| Database centrale giocatori (sez. 4) | 🚧 | Schema pronto (incl. `initialQuotation`), API di lettura (`GET /players`, `GET /players/:id`); **popolato con dati reali** (663 giocatori) tramite il connettore Fantacalcio.it in produzione; nessuna UI di dettaglio giocatore |
-| Sistema di aggiornamento / scraping (sez. 5) | 🚧 | Pipeline completa: `POST /import/run` (pulsante "Aggiorna Database" in Dashboard) orchestra connettori modulari (`ImportConnector`) e fa upsert con source/reliability. **Connettore Fantacalcio.it (quotazioni) verificato in produzione: 663/663 giocatori importati correttamente.** FSTATS e Fantacalciopedia sono ancora stub che riportano "skipped" (vedi §8) |
+| Database centrale giocatori (sez. 4) | 🚧 | Schema pronto (incl. `initialQuotation`), API di lettura (`GET /players`, `GET /players/:id`); **popolato con dati reali** (~760 giocatori, cresce ad ogni "Aggiorna Database" con trasferimenti/nuovi arrivi) tramite i 3 connettori attivi in produzione; nessuna UI di dettaglio giocatore |
+| Sistema di aggiornamento / scraping (sez. 5) | 🚧 | Pipeline completa: `POST /import/run` (pulsante "Aggiorna Database" in Dashboard) orchestra connettori modulari (`ImportConnector`) e fa upsert con source/reliability. **Tutti e 3 i connettori sono reali e verificati in produzione**: Fantacalcio.it/quotazioni (identità/quotazione/ruolo, unico autorizzato a creare nuovi `Player`), FSTATS (in realtà `fantacalcio.it/statistiche-serie-a/{stagione}`, statistiche stagione precedente), Fantacalciopedia (gerarchie "titolare" + rigoristi/tiratori punizioni). Vedi §5 decisioni per il matching fuzzy per nome e `canCreatePlayers` |
 | Transfer Engine (sez. 6) | ⬜ | Modello dati presente (`Transfer`), motore di calcolo impatto non implementato |
 | Rotation Engine (sez. 7) | ⬜ | Modello dati presente (`TeamRotationProfile`), coefficienti non calcolati |
-| Player Evaluation Engine (sez. 8) | 🚧 | Motore puro in `apps/api/src/lib/evaluation/` (un calcolatore per categoria + `evaluatePlayer` orchestratore, nessuna dipendenza da Prisma/HTTP), ricalcolato in automatico a fine `POST /import/run` (`evaluateAllPlayers`) e salvato come nuova riga `PlayerEvaluation` per giocatore. Indici `number \| null`: `null` = dato non disponibile, sempre spiegato in `explanation.factors`. Oggi reali solo `value.valueScore`/`expectedAuctionPrice` (da `initialQuotation`, unica fonte popolata); tutto il resto è `null` finché FSTATS/Fantacalciopedia restano stub — la stessa logica si popola da sola quando lo saranno |
+| Player Evaluation Engine (sez. 8) | 🚧 | Motore puro in `apps/api/src/lib/evaluation/` (un calcolatore per categoria + `evaluatePlayer` orchestratore, nessuna dipendenza da Prisma/HTTP), ricalcolato in automatico a fine `POST /import/run` (`evaluateAllPlayers`) e salvato come nuova riga `PlayerEvaluation` per giocatore. Indici `number \| null`: `null` = dato non disponibile, sempre spiegato in `explanation.factors`. Con tutti e 3 i connettori ora reali, `explanation.confidence` è significativamente più alta di prima (produzione/bonus/stabilità/affidabilità reali per i giocatori coperti da FSTATS/Fantacalciopedia); resta `null` solo dove nessuna fonte ha dati per quel giocatore/indice specifico |
 | Dashboard (sez. 9) | 🚧 | Header collegato alla League reale (nome, partecipanti, budget, rosa) con CTA a `/setup` se non configurata; sezioni ancora placeholder, nessun filtro |
 | Sistema grafico (sez. 10) | ⬜ | Recharts installato, nessun grafico ancora implementato |
 | Live Auction Engine (sez. 11) | ⬜ | Modelli `Auction`/`AuctionEntry` presenti, nessuna UI/logica |
@@ -148,11 +148,31 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   una fonte non richiede toccare l'orchestratore. Un connettore non ancora completato lancia
   `ConnectorNotImplementedError` (riconosciuto dall'orchestratore come stato "skipped", distinto
   da "failed") invece di restituire dati finti o silenziosamente vuoti.
-- **Matching giocatore per (name, team) esatto** in fase di upsert (`import/upsert.ts`): non
-  esiste ancora un id esterno persistito per fonte. Fonti che usano una grafia diversa per lo
-  stesso giocatore (es. accenti, abbreviazioni) creeranno record duplicati. Limite noto e
-  accettato per ora; da risolvere con una tabella di mapping dedicata (`PlayerExternalRef` o
-  simile) se/quando diventa un problema pratico con dati reali.
+- **Matching giocatore per (name, team) esatto, con fallback fuzzy per nome** in fase di upsert
+  (`import/upsert.ts`): non esiste ancora un id esterno persistito per fonte, e FSTATS/
+  Fantacalciopedia usano grafie diverse dal listone quotazioni (es. "BARELLA NICOLO'" invece di
+  "Nicolò Barella", o solo cognome). Se il match esatto fallisce, `findPlayerByFuzzyName` cerca
+  un giocatore esistente che condivida almeno un token di nome normalizzato (accent-insensitive),
+  prima filtrato per ruolo poi (se non trova nulla) senza filtro — necessario perché le fonti non
+  sempre concordano sulla classificazione di ruolo (es. trequartisti C per una fonte, A per
+  un'altra). Accettato solo se univoco, altrimenti niente match (meglio saltare che sbagliare).
+- **`ImportConnector.canCreatePlayers`**: solo Fantacalcio.it/quotazioni (nome completo + squadra
+  nel formato canonico) può creare nuovi `Player` o sovrascriverne `name`/`team`. FSTATS e
+  Fantacalciopedia (formati diversi, meno affidabili per l'identità) possono solo aggiornare
+  giocatori già esistenti (via match esatto o fuzzy) — mai crearne di nuovi né rinominarli.
+  **Lezione da un incidente reale**: la primissima versione del fallback fuzzy permetteva comunque
+  la creazione quando il match falliva (dato che queste fonti forniscono comunque un ruolo),
+  verificato in produzione: ha creato ~124 giocatori duplicati con nome/squadra mal formattati in
+  un singolo giro di `POST /import/run`. Ripulito manualmente via query dirette su Neon (righe
+  identificate con precisione da `source`+`createdAt`, zero collisioni di nome col resto della
+  tabella) prima di introdurre `canCreatePlayers`. Prima di fidarsi di un fallback "crea se non
+  trovi", chiedersi sempre se la fonte è davvero autorevole per l'*identità* del giocatore, non
+  solo per il dato che arricchisce.
+- **Il campo `Player.team` è la sigla a 3 lettere di Fantacalcio.it (es. "INT", "ATA"), non il
+  nome esteso**: assunzione iniziale sbagliata (mai verificata direttamente) corretta ispezionando
+  i dati reali in produzione durante l'incidente sopra. Tutti i connettori e `findPlayerByFuzzyName`
+  ne tengono conto: FSTATS e Fantacalciopedia non si affidano al confronto per `team` (spesso
+  assente o in formato diverso), solo al nome.
 - **`POST /import/run` sincrona**: per la scala di un singolo utente/lega va bene una richiesta
   che attende il completamento di tutti i connettori. Se in futuro Playwright su più pagine la
   rende lenta, valutare di renderla asincrona con un job id e polling di stato, senza cambiare
@@ -262,25 +282,24 @@ connettori (vedi il caso Fantacalcio.it sotto).
   vanno impostate manualmente da Vercel → Project Settings → Environment Variables.
 - Progetto Neon `sedinho` isolato dagli altri progetti dell'account (`easydoc`, `Adapta`).
 
-**Verificato in produzione**: `GET /api/health`, CRUD `League` via Postgres reale, e il
-connettore Fantacalcio.it (663 giocatori importati con successo dal listone reale — i
-selettori CSS erano sbagliati al primo tentativo, corretti ispezionando il markup reale
-tramite una rotta di debug temporanea deployata apposta, dato che nemmeno questa sessione
-può raggiungere fantacalcio.it direttamente).
+**Verificato in produzione**: `GET /api/health`, CRUD `League` via Postgres reale, e tutti e 3 i
+connettori di import (~760 giocatori, cresce ad ogni aggiornamento). Tecnica usata per tutti:
+rotta di debug temporanea (`GET /debug/fetch|links|find`, rimossa a lavoro finito) deployata su
+Vercel per ispezionare il markup reale dal vivo, dato che questa sessione non può raggiungere
+questi siti direttamente (vedi sopra). Stesso schema per Fantacalcio.it (quotazioni, agosto
+2026), FSTATS/`fantacalcio.it/statistiche-serie-a` (statistiche, questa sessione) e
+Fantacalciopedia (gerarchie/rigoristi, questa sessione).
 
 ## 9. Prossimi passi consigliati
 
-1. Completare i connettori stub FSTATS (`import/connectors/fstats.ts`, richiede Playwright
-   per il rendering client-side) e Fantacalciopedia (`import/connectors/fantacalciopedia.ts`,
-   probabilmente Cheerio basta). Stessa tecnica usata per Fantacalcio.it: se serve vedere il
-   markup reale, aggiungere una rotta di debug temporanea, deployare, ispezionare, rimuovere.
-   **Priorità alta ora**: è anche l'unico modo per far crescere `explanation.confidence` del
-   Player Evaluation Engine, che oggi calcola solo `value.valueScore`/`expectedAuctionPrice`
-   da `initialQuotation` — tutto il resto è `null` finché queste due fonti restano stub.
-2. ~~Implementare il Player Evaluation Engine~~ — fatto: `apps/api/src/lib/evaluation/`
-   (vedi sez. 4 e 5). Prossimo passo naturale una volta che FSTATS/Fantacalciopedia sono
-   pronti: verificare che i valori reali prodotti abbiano senso su dati veri (le formule sono
+1. ~~Completare i connettori stub FSTATS e Fantacalciopedia~~ — fatto, tutti e 3 reali e
+   verificati in produzione (vedi sez. 4 e 5, incluso l'incidente `canCreatePlayers` e la
+   correzione sul formato di `Player.team`). Prossimo passo naturale: verificare che i valori
+   reali prodotti dal Player Evaluation Engine abbiano senso su dati veri (le formule sono
    scritte "alla cieca", senza uno storico reale su cui tararle) ed eventualmente affinarle.
+   La curva euristica rango→probabilità dei rigoristi (`fantacalciopedia.ts`) è un candidato
+   naturale da rivedere con calma.
+2. ~~Implementare il Player Evaluation Engine~~ — fatto: `apps/api/src/lib/evaluation/`.
 3. Collegare la Dashboard a dati reali con i filtri richiesti (sez. 9 della spec) prima di
    investire nel sistema grafico (sez. 10).
 4. Aggiungere una vista di dettaglio giocatore in `apps/web`, collegata a
