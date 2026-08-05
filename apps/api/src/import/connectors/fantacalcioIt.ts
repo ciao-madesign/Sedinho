@@ -23,6 +23,7 @@ export const fantacalcioItConnector: ImportConnector = {
   id: "fantacalcio-it",
   label: "Fantacalcio.it — Quotazioni ufficiali",
   reliability: 0.9,
+  canCreatePlayers: true, // unica fonte con nome completo + squadra nel formato canonico
 
   async run(): Promise<PlayerImportRecord[]> {
     const res = await fetch(QUOTATIONS_URL, {

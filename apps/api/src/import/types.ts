@@ -10,6 +10,10 @@ export interface ImportConnector {
   /** Affidabilita' di base di questa fonte (0..1), usata come reliability di default
    * per i record che produce quando vengono salvati nel DB. */
   reliability: number;
+  /** Solo le fonti che identificano un giocatore in modo affidabile (nome completo + squadra
+   * nello stesso formato del resto del DB) possono creare nuovi `Player` o sovrascriverne
+   * name/team (vedi commento su UpsertContext.canCreatePlayers in import/upsert.ts). */
+  canCreatePlayers: boolean;
   run(): Promise<PlayerImportRecord[]>;
 }
 

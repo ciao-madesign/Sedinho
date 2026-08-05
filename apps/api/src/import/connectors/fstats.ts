@@ -39,6 +39,7 @@ export const fstatsConnector: ImportConnector = {
   id: "fstats",
   label: "FSTATS — Statistiche avanzate",
   reliability: 0.75,
+  canCreatePlayers: false, // squadra come sigla a 3 lettere (es. "INT"), non il formato canonico
 
   async run(): Promise<PlayerImportRecord[]> {
     const res = await fetch(STATS_URL, {

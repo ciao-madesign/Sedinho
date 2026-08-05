@@ -4,6 +4,13 @@ import { prisma } from "../db/prisma.js";
 interface UpsertContext {
   source: ImportSourceId;
   reliability: number;
+  /** Solo le fonti che identificano un giocatore in modo affidabile (nome completo + squadra
+   * coerenti col resto del DB, oggi solo Fantacalcio.it/quotazioni) possono creare nuovi
+   * `Player` o sovrascriverne name/team. Le fonti di arricchimento (Fantacalciopedia, la
+   * pagina statistiche) usano grafie/formati diversi (cognome soltanto, sigla squadra a 3
+   * lettere) che andrebbero a corrompere questi campi se scritti direttamente: matchano solo
+   * su giocatori gia' esistenti (via findPlayerByFuzzyName) e non creano/rinominano nulla. */
+  canCreatePlayers: boolean;
 }
 
 interface UpsertOutcome {
@@ -102,32 +109,47 @@ async function findOrCreatePlayer(record: PlayerImportRecord, context: UpsertCon
   const name = record.name.trim();
   const team = record.team.trim();
   let existing = await prisma.player.findFirst({ where: { name, team } });
-  const matchedByFuzzyName = !existing;
-
   if (!existing) {
     existing = await findPlayerByFuzzyName(name, record.role);
   }
 
-  if (!existing && !record.role) {
-    return null;
+  if (!existing) {
+    // Le fonti di arricchimento non conoscono nome/squadra nel formato canonico: non creano
+    // giocatori nuovi, solo il rischio di duplicati con dati mal formattati (vedi commento
+    // su UpsertContext.canCreatePlayers).
+    if (!context.canCreatePlayers || !record.role) return null;
+    return prisma.player.create({
+      data: {
+        name,
+        team,
+        role: record.role,
+        initialQuotation: record.initialQuotation,
+        source: context.source,
+        reliability: context.reliability,
+        availability: "available",
+      },
+    });
   }
 
-  const data = {
-    // Se il match e' avvenuto per nome fuzzy, name/team scritti dalla fonte non sono
-    // affidabili quanto quelli gia' salvati (es. cognome-solo o sigla squadra diversa):
-    // si aggiornano solo i campi che questa fonte conosce davvero (ruolo, quotazione).
-    name: matchedByFuzzyName && existing ? existing.name : name,
-    team: matchedByFuzzyName && existing ? existing.team : team,
-    role: record.role ?? existing!.role,
-    initialQuotation: record.initialQuotation ?? existing?.initialQuotation,
-    source: context.source,
-    reliability: context.reliability,
-  };
+  const data = context.canCreatePlayers
+    ? {
+        name,
+        team,
+        role: record.role ?? existing.role,
+        initialQuotation: record.initialQuotation ?? existing.initialQuotation,
+        source: context.source,
+        reliability: context.reliability,
+      }
+    : {
+        // Solo arricchimento: name/team restano quelli gia' salvati (affidabili), non quelli
+        // di questa fonte secondaria.
+        role: record.role ?? existing.role,
+        initialQuotation: record.initialQuotation ?? existing.initialQuotation,
+        source: context.source,
+        reliability: context.reliability,
+      };
 
-  if (existing) {
-    return prisma.player.update({ where: { id: existing.id }, data });
-  }
-  return prisma.player.create({ data: { ...data, availability: "available" } });
+  return prisma.player.update({ where: { id: existing.id }, data });
 }
 
 async function syncSeasonStats(

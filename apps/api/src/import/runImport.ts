@@ -31,6 +31,7 @@ export async function runImport(): Promise<ImportRunSummary> {
       const { upserted, errors } = await upsertPlayerImportRecords(records, {
         source: connector.id,
         reliability: connector.reliability,
+        canCreatePlayers: connector.canCreatePlayers,
       });
       results.push({
         source: connector.id,

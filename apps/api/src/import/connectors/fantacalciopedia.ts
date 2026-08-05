@@ -155,6 +155,7 @@ export const fantacalciopediaConnector: ImportConnector = {
   id: "fantacalciopedia",
   label: "Fantacalciopedia — Gerarchie e consigli",
   reliability: 0.7,
+  canCreatePlayers: false, // nomi come "BARELLA NICOLO'"/solo cognome, squadra non sempre nota
 
   async run(): Promise<PlayerImportRecord[]> {
     const [hierarchyRecords, setPieceRecords] = await Promise.all([
