@@ -49,10 +49,19 @@ export interface ImportSourceResult {
   durationMs: number;
 }
 
+/** Riepilogo del ricalcolo delle valutazioni (Player Evaluation Engine, sez. 8) eseguito in
+ * automatico a fine "Aggiorna Database". `averageConfidence` riflette quanti indici hanno
+ * dati reali: sara' basso finche' FSTATS/Fantacalciopedia restano stub (sez. 5). */
+export interface EvaluationRunSummary {
+  evaluated: number;
+  averageConfidence: number;
+}
+
 /** Riepilogo di un'esecuzione di "Aggiorna Database" (sez. 5). Innescata solo da un'azione
  * utente esplicita: nessun campo/meccanismo qui prevede scheduling automatico. */
 export interface ImportRunSummary {
   startedAt: string;
   finishedAt: string;
   results: ImportSourceResult[];
+  evaluation: EvaluationRunSummary;
 }

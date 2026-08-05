@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { prisma } from "../db/prisma.js";
+import { toPlayerEvaluation } from "../lib/evaluation-mapper.js";
 
 interface ListPlayersQuery {
   role?: string;
@@ -33,6 +34,8 @@ export async function playerRoutes(app: FastifyInstance) {
     if (!player) {
       return reply.code(404).send({ error: "Player not found" });
     }
-    return player;
+    // Il confine JSON-string <-> tipi condivisi va sempre attraversato tramite il mapper
+    // dedicato (vedi lib/evaluation-mapper.ts), mai esponendo le stringhe serializzate.
+    return { ...player, evaluations: player.evaluations.map(toPlayerEvaluation) };
   });
 }

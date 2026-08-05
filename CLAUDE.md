@@ -83,7 +83,7 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 | Sistema di aggiornamento / scraping (sez. 5) | 🚧 | Pipeline completa: `POST /import/run` (pulsante "Aggiorna Database" in Dashboard) orchestra connettori modulari (`ImportConnector`) e fa upsert con source/reliability. **Connettore Fantacalcio.it (quotazioni) verificato in produzione: 663/663 giocatori importati correttamente.** FSTATS e Fantacalciopedia sono ancora stub che riportano "skipped" (vedi §8) |
 | Transfer Engine (sez. 6) | ⬜ | Modello dati presente (`Transfer`), motore di calcolo impatto non implementato |
 | Rotation Engine (sez. 7) | ⬜ | Modello dati presente (`TeamRotationProfile`), coefficienti non calcolati |
-| Player Evaluation Engine (sez. 8) | ⬜ | Struttura `PlayerEvaluation` definita, algoritmi degli indici da scrivere |
+| Player Evaluation Engine (sez. 8) | 🚧 | Motore puro in `apps/api/src/lib/evaluation/` (un calcolatore per categoria + `evaluatePlayer` orchestratore, nessuna dipendenza da Prisma/HTTP), ricalcolato in automatico a fine `POST /import/run` (`evaluateAllPlayers`) e salvato come nuova riga `PlayerEvaluation` per giocatore. Indici `number \| null`: `null` = dato non disponibile, sempre spiegato in `explanation.factors`. Oggi reali solo `value.valueScore`/`expectedAuctionPrice` (da `initialQuotation`, unica fonte popolata); tutto il resto è `null` finché FSTATS/Fantacalciopedia restano stub — la stessa logica si popola da sola quando lo saranno |
 | Dashboard (sez. 9) | 🚧 | Header collegato alla League reale (nome, partecipanti, budget, rosa) con CTA a `/setup` se non configurata; sezioni ancora placeholder, nessun filtro |
 | Sistema grafico (sez. 10) | ⬜ | Recharts installato, nessun grafico ancora implementato |
 | Live Auction Engine (sez. 11) | ⬜ | Modelli `Auction`/`AuctionEntry` presenti, nessuna UI/logica |
@@ -164,6 +164,31 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   `String` anche su Postgres per non introdurre un secondo cambiamento contestuale: **Postgres
   supporterebbe il tipo `Json` nativo di Prisma**, quindi è un refactor pulito disponibile per
   il futuro (rimuoverebbe il bisogno di `league-mapper.ts`), ma non è stato fatto ora.
+- **Player Evaluation Engine come modulo puro** (`apps/api/src/lib/evaluation/`): un
+  calcolatore per categoria (`reliability.ts`, `production.ts`, `bonus.ts`, `stability.ts`,
+  `value.ts`), ognuno una funzione pura `input -> { indices, factors }` senza dipendenze da
+  Prisma/HTTP, assemblati da `evaluatePlayer.ts` in un'unica `PlayerEvaluation`. Il confine col
+  DB (query Prisma + persistenza) è isolato in `evaluateAllPlayers.ts` e nel mapper
+  `lib/evaluation-mapper.ts` (stesso pattern di `league-mapper.ts`), cosi' il motore resta
+  testabile in isolamento e sostituibile (principio "Modularità").
+- **Indici `number | null`, mai un finto zero**: ogni campo di `ReliabilityIndices` /
+  `ProductionIndices` / `BonusIndices` / `StabilityIndices` / `ValueIndices` è `number | null`
+  (tipi in `packages/shared/src/types/evaluation.ts`). `null` significa esplicitamente "dato
+  non disponibile" — la fonte che manca (FSTATS, Fantacalciopedia, Market Engine, ...) è sempre
+  nominata in un `ExplanationFactor` con `weight: 0` dentro `explanation.factors` (principio
+  "Spiegabile"). `explanation.confidence` è la frazione di campi calcolati con dati reali su 20
+  totali. Con le sole quotazioni Fantacalcio.it disponibili oggi, solo `value.valueScore`
+  (percentile della quotazione tra i giocatori dello stesso ruolo) e
+  `value.expectedAuctionPrice` (= `initialQuotation`) sono reali; il resto è `null` finché
+  FSTATS (statistiche) e Fantacalciopedia (gerarchie, calci piazzati) restano stub — la stessa
+  logica calcolerà valori veri senza modifiche non appena quelle tabelle si popolano.
+- **Ricalcolo automatico a fine "Aggiorna Database", non un bottone separato**:
+  `POST /import/run` chiama `evaluateAllPlayers()` come ultimo passo, che crea una nuova riga
+  `PlayerEvaluation` per ogni giocatore (storico append-only, `GET /players/:id` prende la più
+  recente per `computedAt`). Resta un'unica azione manuale end-to-end, coerente col principio
+  "Aggiornamento manuale": non serve un endpoint/pulsante dedicato in più. Sequenziale (non
+  `Promise.all`) per lo stesso motivo di `upsertPlayerImportRecords`: `DATABASE_URL` in
+  produzione è una pooled connection Neon con `connection_limit=1`.
 - **Deploy su Vercel via GitHub, non via upload manuale**: il progetto Vercel `sedinho` è
   collegato al repo GitHub con branch di produzione `main` (vedi sez. 8). Un `git push` su
   `main` innesca da solo un deploy automatico in produzione — **non serve invocare deploy
@@ -249,15 +274,18 @@ può raggiungere fantacalcio.it direttamente).
    per il rendering client-side) e Fantacalciopedia (`import/connectors/fantacalciopedia.ts`,
    probabilmente Cheerio basta). Stessa tecnica usata per Fantacalcio.it: se serve vedere il
    markup reale, aggiungere una rotta di debug temporanea, deployare, ispezionare, rimuovere.
-2. Implementare il Player Evaluation Engine (sez. 8 della spec) come modulo puro/testabile in
-   `apps/api/src/lib/` (o pacchetto dedicato `packages/engine` se cresce), separato
-   dalle rotte HTTP, così da restare sostituibile (principio "Modularità"). Ora che l'import
-   ha popolato `Player` con dati reali, questo motore ha dati su cui lavorare (mancano ancora
-   `SeasonStats`/statistiche, che verranno da FSTATS).
+   **Priorità alta ora**: è anche l'unico modo per far crescere `explanation.confidence` del
+   Player Evaluation Engine, che oggi calcola solo `value.valueScore`/`expectedAuctionPrice`
+   da `initialQuotation` — tutto il resto è `null` finché queste due fonti restano stub.
+2. ~~Implementare il Player Evaluation Engine~~ — fatto: `apps/api/src/lib/evaluation/`
+   (vedi sez. 4 e 5). Prossimo passo naturale una volta che FSTATS/Fantacalciopedia sono
+   pronti: verificare che i valori reali prodotti abbiano senso su dati veri (le formule sono
+   scritte "alla cieca", senza uno storico reale su cui tararle) ed eventualmente affinarle.
 3. Collegare la Dashboard a dati reali con i filtri richiesti (sez. 9 della spec) prima di
    investire nel sistema grafico (sez. 10).
 4. Aggiungere una vista di dettaglio giocatore in `apps/web`, collegata a
-   `GET /players/:id` (già pronta lato API, e ora popolata con dati reali).
+   `GET /players/:id` (già pronta lato API, ora include anche l'ultima `PlayerEvaluation`
+   calcolata, con relativa `Explanation`).
 5. Valutare se/quando introdurre il parsing assistito da AI del regolamento (BYOK,
    vedi §5): non urgente, il form strutturato manuale del Setup Wizard copre già il
    caso d'uso attuale.

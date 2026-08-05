@@ -89,6 +89,18 @@ export function ImportPanel() {
               )}
             </li>
           ))}
+          <li className="rounded border border-slate-800 p-3">
+            <div className="flex items-center justify-between">
+              <span className="font-medium">Valutazioni giocatori</span>
+              <span className="text-slate-400">
+                confidenza media {Math.round(summary.evaluation.averageConfidence * 100)}%
+              </span>
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              {summary.evaluation.evaluated} giocatori ricalcolati. La confidenza cresce man
+              mano che FSTATS e Fantacalciopedia vengono completati.
+            </div>
+          </li>
         </ul>
       )}
     </div>

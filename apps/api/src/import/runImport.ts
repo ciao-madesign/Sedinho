@@ -5,6 +5,7 @@ import { upsertPlayerImportRecords } from "./upsert.js";
 import { fantacalcioItConnector } from "./connectors/fantacalcioIt.js";
 import { fstatsConnector } from "./connectors/fstats.js";
 import { fantacalciopediaConnector } from "./connectors/fantacalciopedia.js";
+import { evaluateAllPlayers } from "../lib/evaluation/evaluateAllPlayers.js";
 
 /** Elenco dei connettori attivi. Aggiungere una nuova fonte = aggiungere un modulo che
  * implementa ImportConnector e registrarlo qui: l'orchestratore non va toccato altrimenti
@@ -52,9 +53,15 @@ export async function runImport(): Promise<ImportRunSummary> {
     }
   }
 
+  // Ricalcola le PlayerEvaluation di tutti i giocatori a fine import (sez. 8): resta
+  // un'unica azione manuale end-to-end (il click su "Aggiorna Database"), coerente col
+  // principio "Aggiornamento manuale" — nessun pulsante/endpoint separato necessario.
+  const evaluation = await evaluateAllPlayers();
+
   return {
     startedAt: startedAt.toISOString(),
     finishedAt: new Date().toISOString(),
     results,
+    evaluation,
   };
 }
