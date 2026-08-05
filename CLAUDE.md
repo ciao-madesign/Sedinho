@@ -86,7 +86,7 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 | Player Evaluation Engine (sez. 8) | 🚧 | Motore puro in `apps/api/src/lib/evaluation/` (un calcolatore per categoria + `evaluatePlayer` orchestratore, nessuna dipendenza da Prisma/HTTP), ricalcolato in automatico a fine `POST /import/run` (`evaluateAllPlayers`) e salvato come nuova riga `PlayerEvaluation` per giocatore. Indici `number \| null`: `null` = dato non disponibile, sempre spiegato in `explanation.factors`. Con tutti e 3 i connettori ora reali, `explanation.confidence` è significativamente più alta di prima (produzione/bonus/stabilità/affidabilità reali per i giocatori coperti da FSTATS/Fantacalciopedia); resta `null` solo dove nessuna fonte ha dati per quel giocatore/indice specifico |
 | Dashboard (sez. 9) | 🚧 | Header collegato alla League reale (nome, partecipanti, budget, rosa) con CTA a `/setup` se non configurata. Delle 9 sezioni spec, 4 collegate a dati reali (Migliori occasioni, Sopravvalutati, Titolari, Rigoristi/piazzati — vedi §5 sui limiti di "nuovi"); le altre 5 (cambi gerarchia, infortuni, trasferimenti, in crescita/in calo) restano placeholder onesti con la ragione esplicita (richiedono storico o motori non ancora costruiti), non dati finti. Filtri per pannello (sez. 9: ruolo/squadra/fascia prezzo/età/rischio/titolarità) non ancora implementati: oggi solo la pagina `/players` è filtrabile |
 | Sistema grafico (sez. 10) | ⬜ | Recharts installato, nessun grafico ancora implementato |
-| Live Auction Engine (sez. 11) | ⬜ | Modelli `Auction`/`AuctionEntry` presenti, nessuna UI/logica |
+| Live Auction Engine (sez. 11) | 🚧 | Nuovo modello `Participant` (chi sono i partecipanti, non solo il numero); `Auction`/`AuctionEntry` ora collegati con foreign key reali (a `League`/`Player`/`Participant`, prima erano stringhe libere). Rotte `apps/api/src/routes/auction.ts`: nomina partecipanti, avvia/termina asta, aggiungi/rimuovi un inserimento (giocatore+prezzo+acquirente, l'unico input richiesto dalla spec), con validazione budget e "un giocatore non può essere venduto due volte nella stessa asta" (vincolo DB). Ogni inserimento ricalcola budget residuo e fabbisogno di ruolo per tutti i partecipanti (da zero, non incrementale — scala di un'asta personale). UI: `/auction`, form a 3 input. **Non implementati** (dipendono da motori sez. 12-14, tutti ⬜): valore di mercato, probabilità residue, migliori opportunità — omessi, non inventati |
 | Profilazione avversari (sez. 12) | ⬜ | Modello `OpponentProfile` presente, calcolo non implementato |
 | Market Engine (sez. 13) | ⬜ | Tipo `MarketState` definito, non calcolato |
 | Decision Engine (sez. 14) | ⬜ | Tipo `DecisionRecommendation` definito, nessuna logica |
@@ -236,6 +236,30 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   è la connessione TCP a fallire). Quindi anche la UI non è testabile in locale in questa
   sessione — verificata invece sul deploy Vercel di produzione (che ha accesso reale), stessa
   tecnica già usata per i connettori.
+- **`Participant` come modello nuovo, separato da `League.participants`**: quel campo è solo il
+  numero di partecipanti scelto nel Setup Wizard, non chi sono. L'asta live (sez. 11) ha bisogno
+  di sapere chi per calcolare budget residuo/fabbisogno di ruolo per ciascuno: `Participant`
+  (nome + `isMe`, per distinguere "la mia rosa" nel report finale, sez. 16) viene creato al volo
+  al primo avvio asta (`POST /participants`), non nel Setup Wizard, per non appesantire quel
+  flusso con un input utile solo più avanti.
+- **Generare una migrazione Prisma senza accesso al DB**: `prisma migrate dev` (e anche
+  `migrate diff --from-migrations`) hanno bisogno di una connessione reale (anche solo a un
+  shadow DB) per calcolare il diff, quindi falliscono nel sandbox di sviluppo (vedi sopra).
+  `prisma migrate diff --from-schema-datamodel <schema-vecchio> --to-schema-datamodel <schema-
+  nuovo> --script` invece confronta due file schema.prisma direttamente, senza toccare nessun
+  database: usato per generare `migrations/20260805123450_auction_participants/migration.sql`
+  (schema vecchio recuperato con `git show HEAD:...schema.prisma`). Verificato a mano che le
+  tabelle toccate (`Auction`/`AuctionEntry`) fossero vuote in produzione prima di introdurre
+  foreign key `NOT NULL` su di esse.
+- **Stato dell'asta ricalcolato da zero ad ogni richiesta, non incrementale**: `GET /auctions/
+  active` (e la risposta di ogni mutazione) rifà la query completa e ricalcola budget/fabbisogni
+  per tutti i partecipanti ogni volta, invece di tenere uno stato aggregato aggiornato in
+  modo incrementale. Più semplice e impossibile da far disallineare, accettabile alla scala di
+  un'asta personale (poche decine di inserimenti, un solo utente).
+- **Vincoli di integrità lato DB, non solo applicativi**: `@@unique([auctionId, playerId])` su
+  `AuctionEntry` impedisce di vendere due volte lo stesso giocatore nella stessa asta anche in
+  caso di race condition; il prezzo viene comunque validato anche applicativamente contro il
+  budget residuo del partecipante prima dell'insert (calcolato ricostruendo lo stato, vedi sopra).
 
 ## 6. Convenzioni di sviluppo
 
@@ -349,3 +373,10 @@ e ha chiesto esplicitamente, come direzione per il resto del frontend:
    caso d'uso attuale.
 6. Impostare `main` come default branch su GitHub (Settings → Branches) se non già fatto:
    coerente con l'essere anche il branch di produzione Vercel.
+7. ~~Costruire il Live Auction Engine~~ — fatto il nucleo richiesto dalla spec (giocatore+
+   prezzo+acquirente, budget/fabbisogni ricalcolati ad ogni inserimento). Non testato con dati
+   reali in produzione in questa sessione (crea partecipanti/un'asta reali per la lega
+   dell'utente, non dati usa-e-getta come i connettori): da verificare dal vivo, o testare con
+   nomi fittizi e ripulire dopo. Prossimi passi naturali una volta usata in un'asta vera:
+   Profilazione avversari (sez. 12) e Market Engine (sez. 13) — oggi "valore di mercato" e
+   "probabilità residue" richiesti dalla spec sez. 11 sono onestamente assenti, non finti.

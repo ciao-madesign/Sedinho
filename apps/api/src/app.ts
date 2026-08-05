@@ -4,6 +4,7 @@ import { healthRoutes } from "./routes/health.js";
 import { leagueRoutes } from "./routes/leagues.js";
 import { playerRoutes } from "./routes/players.js";
 import { importRoutes } from "./routes/import.js";
+import { auctionRoutes } from "./routes/auction.js";
 
 /** Costruisce l'istanza Fastify senza avviare il listener: riusata sia dal dev locale
  * (index.ts, che chiama .listen()) sia dalla function serverless di Vercel
@@ -18,6 +19,7 @@ export async function buildApp() {
   await app.register(leagueRoutes);
   await app.register(playerRoutes);
   await app.register(importRoutes);
+  await app.register(auctionRoutes);
 
   return app;
 }

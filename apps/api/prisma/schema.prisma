@@ -33,6 +33,27 @@ model League {
   cupFormat          String?  // JSON: CupFormat
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+
+  participantsList Participant[]
+  auctions         Auction[]
+}
+
+// `League.participants` e' solo il numero previsto dal Setup Wizard (sez. 3): per l'asta live
+// (sez. 11) serve sapere CHI sono, per calcolare budget residuo e fabbisogno di ruolo per
+// ciascuno. Creati al volo la prima volta che si avvia un'asta (vedi routes/auctions.ts), non
+// nel Setup Wizard, per non appesantire quel flusso con un input che serve solo più avanti.
+model Participant {
+  id       String  @id @default(cuid())
+  leagueId String
+  league   League  @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  name     String
+  isMe     Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  auctionEntries AuctionEntry[]
+
+  @@index([leagueId])
 }
 
 // ---------------------------------------------------------------------------
@@ -56,11 +77,12 @@ model Player {
   reliability Float    @default(1)
   createdAt   DateTime @default(now())
 
-  seasonStats   SeasonStats[]
-  hierarchies   PlayerHierarchy[]
-  setPieceRoles SetPieceRole[]
-  transfers     Transfer[]
-  evaluations   PlayerEvaluation[]
+  seasonStats    SeasonStats[]
+  hierarchies    PlayerHierarchy[]
+  setPieceRoles  SetPieceRole[]
+  transfers      Transfer[]
+  evaluations    PlayerEvaluation[]
+  auctionEntries AuctionEntry[]
 
   @@index([team])
   @@index([role])
@@ -193,26 +215,37 @@ model PlayerEvaluation {
 // ---------------------------------------------------------------------------
 
 model Auction {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   leagueId  String
-  startedAt DateTime @default(now())
+  league    League    @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  startedAt DateTime  @default(now())
   endedAt   DateTime?
 
   entries AuctionEntry[]
+
+  @@index([leagueId])
 }
 
 model AuctionEntry {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   auctionId String
-  auction   Auction  @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  auction   Auction @relation(fields: [auctionId], references: [id], onDelete: Cascade)
 
-  playerId  String
-  price     Int
-  buyerId   String
+  playerId String
+  player   Player @relation(fields: [playerId], references: [id])
+
+  price Int
+
+  buyerId String
+  buyer   Participant @relation(fields: [buyerId], references: [id])
+
   timestamp DateTime @default(now())
 
+  // Un giocatore puo' essere assegnato una sola volta per asta.
+  @@unique([auctionId, playerId])
   @@index([auctionId])
   @@index([playerId])
+  @@index([buyerId])
 }
 
 model OpponentProfile {

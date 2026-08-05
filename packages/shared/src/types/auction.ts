@@ -1,4 +1,15 @@
-import type { Explanation } from "./common.js";
+import type { Explanation, PlayerRole } from "./common.js";
+
+/** Un partecipante alla lega (sez. 11): `League.participants` e' solo il numero previsto dal
+ * Setup Wizard, questi record esistono per sapere CHI sono, necessari per calcolare budget
+ * residuo e fabbisogno di ruolo durante l'asta live. Creati al volo al primo avvio asta. */
+export interface Participant {
+  id: string;
+  leagueId: string;
+  name: string;
+  /** Il fantallenatore che usa Sedinho, per distinguere "la mia rosa" nel report finale (sez. 16). */
+  isMe: boolean;
+}
 
 /** Un singolo inserimento durante l'asta live (sez. 11, Live Auction Engine). */
 export interface AuctionEntry {
@@ -8,6 +19,43 @@ export interface AuctionEntry {
   price: number;
   buyerId: string;
   timestamp: string;
+}
+
+/** Un inserimento asta arricchito con i dati di giocatore/acquirente per la UI, senza dover
+ * fare join lato client (sez. 11: "ogni inserimento aggiornerà immediatamente" varie viste). */
+export interface AuctionEntryView {
+  id: string;
+  price: number;
+  timestamp: string;
+  player: { id: string; name: string; role: PlayerRole; team: string };
+  buyer: { id: string; name: string };
+}
+
+/** Budget residuo e fabbisogno di ruolo di un partecipante, ricalcolati ad ogni inserimento
+ * (sez. 11: "aggiornerà immediatamente... budget residui, fabbisogni di ruolo"). */
+export interface ParticipantAuctionSummary {
+  id: string;
+  name: string;
+  isMe: boolean;
+  budgetSpent: number;
+  budgetRemaining: number;
+  /** Giocatori già acquistati in questa asta, per ruolo. */
+  rosterCounts: Record<PlayerRole, number>;
+  /** Quanti ne mancano ancora per completare la rosa (da `LeagueConfig.rosterComposition`),
+   * mai negativo. */
+  rosterNeeded: Record<PlayerRole, number>;
+}
+
+/** Stato completo dell'asta attiva, cosi' come restituito da `GET /auctions/active` — tutto
+ * cio' che serve alla console live in un'unica chiamata (sez. 11). "Valore di mercato" e
+ * "probabilità residue" (richiesti dalla spec) non ci sono ancora: dipendono dal Market Engine
+ * (sez. 13), non ancora implementato — nessun dato inventato nel frattempo. */
+export interface ActiveAuctionState {
+  id: string;
+  leagueId: string;
+  startedAt: string;
+  entries: AuctionEntryView[];
+  participants: ParticipantAuctionSummary[];
 }
 
 /** Profilo di un partecipante, costruito e aggiornato in tempo reale (sez. 12). */

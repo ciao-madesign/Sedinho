@@ -1,8 +1,10 @@
 import type {
+  ActiveAuctionState,
   HierarchyLevel,
   ImportRunSummary,
   LeagueConfig,
   LeagueDraft,
+  Participant,
   PlayerAvailability,
   PlayerEvaluation,
   PlayerListItem,
@@ -23,7 +25,9 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
+    // Solo se c'e' un body: un Content-Type: application/json senza body (es. DELETE) fa
+    // fallire il parser JSON di default di Fastify su una stringa vuota.
+    headers: init?.body ? { "Content-Type": "application/json" } : undefined,
     ...init,
   });
   if (!res.ok) {
@@ -38,6 +42,7 @@ export const api = {
     request<T>(path, { method: "POST", body: JSON.stringify(body) }),
   put: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
+  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };
 
 export const leaguesApi = {
@@ -131,4 +136,20 @@ export const playersApi = {
   list: (filter: PlayersFilter = {}) =>
     api.get<PlayerListItem[]>(`/players${toQueryString({ ...filter })}`),
   get: (id: string) => api.get<PlayerDetail>(`/players/${id}`),
+};
+
+export const participantsApi = {
+  list: () => api.get<Participant[]>("/participants"),
+  create: (names: string[], meIndex?: number) =>
+    api.post<Participant[]>("/participants", { names, meIndex }),
+};
+
+export const auctionApi = {
+  getActive: () => api.get<ActiveAuctionState>("/auctions/active"),
+  start: () => api.post<ActiveAuctionState>("/auctions", {}),
+  end: (id: string) => api.post<{ ended: true }>(`/auctions/${id}/end`, {}),
+  addEntry: (id: string, entry: { playerId: string; price: number; buyerId: string }) =>
+    api.post<ActiveAuctionState>(`/auctions/${id}/entries`, entry),
+  removeEntry: (id: string, entryId: string) =>
+    api.delete<ActiveAuctionState>(`/auctions/${id}/entries/${entryId}`),
 };
