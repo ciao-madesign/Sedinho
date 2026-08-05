@@ -17,7 +17,7 @@ const sortOptions: { key: SortKey; label: string }[] = [
 ];
 
 export function PlayersPage() {
-  const [players, setPlayers] = useState<PlayerListItem[] | null>(null);
+  const [players, setPlayers] = useState<PlayerListItem[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [role, setRole] = useState<PlayerRole | "ALL">("ALL");
   const [team, setTeam] = useState<string>("ALL");
@@ -62,12 +62,13 @@ export function PlayersPage() {
       <div>
         <h1 className="text-2xl font-semibold">Giocatori</h1>
         <p className="mt-1 text-slate-400">
-          {players ? `${filtered.length} di ${players.length}` : "Caricamento…"} giocatori nel
-          database centrale.
+          {error
+            ? "Impossibile caricare il database giocatori."
+            : players
+              ? `${filtered.length} di ${players.length} giocatori nel database centrale.`
+              : "Caricamento…"}
         </p>
       </div>
-
-      {error && <p className="text-sm text-red-400">{error}</p>}
 
       <div className="flex flex-wrap items-center gap-3">
         <input
