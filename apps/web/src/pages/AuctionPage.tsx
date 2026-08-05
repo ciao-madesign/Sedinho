@@ -4,6 +4,7 @@ import type {
   AuctionEntryView,
   LeagueConfig,
   MarketState,
+  OpponentProfile,
   Participant,
   PlayerListItem,
   PlayerRole,
@@ -581,6 +582,89 @@ function ParticipantRosterCard({
   );
 }
 
+function formatPercentOrNA(value: number | null): string {
+  return value !== null ? `${Math.round(value * 100)}%` : "n/d";
+}
+
+function topTeamPreference(teamPreferences: Record<string, number>): string | null {
+  const entries = Object.entries(teamPreferences);
+  if (entries.length === 0) return null;
+  return [...entries].sort((a, b) => b[1] - a[1])[0]![0];
+}
+
+/** Pannello di profilazione avversari (sez. 12): un profilo per partecipante costruito
+ * esclusivamente dagli inserimenti già fatti in questa asta (vedi
+ * apps/api/src/lib/opponents/computeOpponentProfiles.ts). "n/d" dove manca ancora il dato
+ * minimo per calcolare l'indice (es. concentrazione della spesa richiede almeno 2 acquisti),
+ * mai un valore inventato. */
+function OpponentsPanel({
+  opponents,
+  participants,
+}: {
+  opponents: OpponentProfile[];
+  participants: ActiveAuctionState["participants"];
+}) {
+  const nameById = new Map(participants.map((p) => [p.id, p.name]));
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+      <h2 className="mb-3 font-medium">Profilo avversari</h2>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-left text-sm">
+          <thead className="text-xs uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="py-1.5 pr-4 font-medium">Partecipante</th>
+              <th className="py-1.5 pr-4 text-right font-medium">Spesa media</th>
+              <th className="py-1.5 pr-4 text-right font-medium">Overpay index</th>
+              <th className="py-1.5 pr-4 text-right font-medium">Aggressività*</th>
+              <th className="py-1.5 pr-4 text-right font-medium">Concentrazione</th>
+              <th className="py-1.5 pr-4 text-right font-medium">Preferenza big</th>
+              <th className="py-1.5 pr-4 text-right font-medium">Preferenza giovani</th>
+              <th className="py-1.5 font-medium">Squadra preferita</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800/60">
+            {opponents.map((o) => (
+              <tr key={o.participantId}>
+                <td className="py-1.5 pr-4 font-medium">
+                  {nameById.get(o.participantId) ?? "—"}
+                </td>
+                <td className="py-1.5 pr-4 text-right tabular-nums text-slate-300">
+                  {formatCredits(o.averageSpend)}
+                </td>
+                <td className="py-1.5 pr-4 text-right tabular-nums text-slate-300">
+                  {o.overpayIndex !== null ? `${o.overpayIndex.toFixed(2)}x` : "n/d"}
+                </td>
+                <td className="py-1.5 pr-4 text-right tabular-nums text-slate-300">
+                  {formatPercentOrNA(o.aggressiveness)}
+                </td>
+                <td className="py-1.5 pr-4 text-right tabular-nums text-slate-300">
+                  {formatPercentOrNA(o.spendConcentration)}
+                </td>
+                <td className="py-1.5 pr-4 text-right tabular-nums text-slate-300">
+                  {formatPercentOrNA(o.topPlayerPreference)}
+                </td>
+                <td className="py-1.5 pr-4 text-right tabular-nums text-slate-300">
+                  {formatPercentOrNA(o.youngPlayerPreference)}
+                </td>
+                <td className="py-1.5 text-slate-400">
+                  {topTeamPreference(o.teamPreferences) ?? "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-3 text-[11px] text-slate-600">
+        *Nessun rilancio intermedio è registrato dall'asta (solo il prezzo finale di ogni
+        inserimento): "aggressività" è una proxy sulla frequenza di sovrapprezzo rispetto alla
+        quotazione, non una misura diretta dei rilanci. "n/d" dove manca ancora il dato minimo
+        per calcolare l'indice.
+      </p>
+    </div>
+  );
+}
+
 export function AuctionPage() {
   const [league, setLeague] = useState<LeagueConfig | null | undefined>(undefined);
   const [participants, setParticipants] = useState<Participant[] | undefined>(undefined);
@@ -792,6 +876,8 @@ export function AuctionPage() {
               </div>
             </div>
           </div>
+
+          <OpponentsPanel opponents={auction.opponents} participants={auction.participants} />
 
           <p className="text-xs text-slate-500">
             La valutazione per-giocatore confronta il prezzo pagato con la sua quotazione

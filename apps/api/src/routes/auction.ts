@@ -2,7 +2,9 @@ import type { FastifyInstance } from "fastify";
 import type { ActiveAuctionState, ParticipantAuctionSummary, PlayerRole } from "@sedinho/shared";
 import { prisma } from "../db/prisma.js";
 import { toLeagueConfig } from "../lib/league-mapper.js";
+import { toPlayerEvaluation } from "../lib/evaluation-mapper.js";
 import { computeMarketState } from "../lib/market/computeMarketState.js";
+import { computeOpponentProfiles } from "../lib/opponents/computeOpponentProfiles.js";
 
 const ROLES: PlayerRole[] = ["P", "D", "C", "A"];
 
@@ -92,6 +94,34 @@ async function buildActiveAuctionState(auctionId: string): Promise<ActiveAuction
     starters,
   });
 
+  // Un valueScore per giocatore (piu' righe PlayerEvaluation storiche per lo stesso giocatore,
+  // ordinate per computedAt desc: si tiene solo la prima incontrata, la piu' recente).
+  const evaluationRows = await prisma.playerEvaluation.findMany({
+    where: { playerId: { in: [...new Set(auction.entries.map((e) => e.playerId))] } },
+    orderBy: { computedAt: "desc" },
+  });
+  const valueScoreByPlayerId = new Map<string, number | null>();
+  for (const row of evaluationRows) {
+    if (!valueScoreByPlayerId.has(row.playerId)) {
+      valueScoreByPlayerId.set(row.playerId, toPlayerEvaluation(row).value.valueScore);
+    }
+  }
+
+  const opponents = computeOpponentProfiles({
+    participants: participantSummaries.map((p) => ({
+      participantId: p.id,
+      remainingBudget: p.budgetRemaining,
+    })),
+    entries: auction.entries.map((entry) => ({
+      participantId: entry.buyerId,
+      price: entry.price,
+      team: entry.player.team,
+      quotation: entry.player.initialQuotation ?? null,
+      valueScore: valueScoreByPlayerId.get(entry.playerId) ?? null,
+      birthDate: entry.player.birthDate ? entry.player.birthDate.toISOString() : null,
+    })),
+  });
+
   return {
     id: auction.id,
     leagueId: auction.leagueId,
@@ -110,12 +140,14 @@ async function buildActiveAuctionState(auctionId: string): Promise<ActiveAuction
     })),
     participants: participantSummaries,
     market,
+    opponents,
   };
 }
 
 /** Rotte per l'asta live (sez. 11), incluso lo stato del Market Engine (sez. 13, vedi
- * lib/market/computeMarketState.ts). "Migliori opportunità" resta assente: dipende dal Decision
- * Engine (sez. 14), non ancora implementato — meglio ometterlo che inventarlo. */
+ * lib/market/computeMarketState.ts) e i profili avversari (sez. 12, vedi
+ * lib/opponents/computeOpponentProfiles.ts). "Migliori opportunità" resta assente: dipende dal
+ * Decision Engine (sez. 14), non ancora implementato — meglio ometterlo che inventarlo. */
 export async function auctionRoutes(app: FastifyInstance) {
   app.get("/participants", async (_request, reply) => {
     const league = await getSingleLeague();

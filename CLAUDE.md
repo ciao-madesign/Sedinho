@@ -87,7 +87,7 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 | Dashboard (sez. 9) | 🚧 | Header collegato alla League reale (nome, partecipanti, budget, rosa) con CTA a `/setup` se non configurata. Delle 9 sezioni spec, 4 collegate a dati reali (Migliori occasioni, Sopravvalutati, Titolari, Rigoristi/piazzati — vedi §5 sui limiti di "nuovi"); le altre 5 (cambi gerarchia, infortuni, trasferimenti, in crescita/in calo) restano placeholder onesti con la ragione esplicita (richiedono storico o motori non ancora costruiti), non dati finti. **Filtri implementati**: `DashboardFiltersBar` (`components/DashboardFilters.tsx`) — ruolo, squadra, fascia prezzo (quotazione), età, rischio (disponibilità), titolarità, tutti quelli richiesti dalla spec sez. 9 — filtra il pool di giocatori condiviso da tutte le sezioni prima che ognuna estragga la propria top-5 (vedi §5 sulla scelta di una barra unica invece di controlli per pannello) |
 | Sistema grafico (sez. 10) | ⬜ | Recharts installato, nessun grafico ancora implementato |
 | Live Auction Engine (sez. 11) | 🚧 | Nuovo modello `Participant` (chi sono i partecipanti, non solo il numero); `Auction`/`AuctionEntry` ora collegati con foreign key reali (a `League`/`Player`/`Participant`, prima erano stringhe libere). Rotte `apps/api/src/routes/auction.ts`: nomina partecipanti, avvia/termina asta, aggiungi/rimuovi un inserimento (giocatore+prezzo+acquirente, l'unico input richiesto dalla spec), reset di partecipanti/asta per fare prove, con validazione budget e "un giocatore non può essere venduto due volte nella stessa asta" (vincolo DB). Ogni inserimento ricalcola budget residuo e fabbisogno di ruolo per tutti i partecipanti (da zero, non incrementale — scala di un'asta personale). UI `/auction` a due colonne: pannello giocatori filtrabile per ruolo/nome con quelli già assegnati mostrati ingrigiti (badge acquirente + prezzo pagato), rosa di ogni partecipante visibile in tempo reale con prezzo reale per giocatore, valutazione sintetica dell'operazione (prezzo pagato vs quotazione ufficiale, unico riferimento disponibile oggi), **pannello Market Engine** (vedi riga sotto) sopra le rose. **Non implementato**: "migliori opportunità" dipende dal Decision Engine (sez. 14, ⬜) — omesso, non inventato |
-| Profilazione avversari (sez. 12) | ⬜ | Modello `OpponentProfile` presente, calcolo non implementato |
+| Profilazione avversari (sez. 12) | 🚧 | Motore puro `apps/api/src/lib/opponents/computeOpponentProfiles.ts` (stesso pattern di Market/Evaluation Engine), ricalcolato ad ogni chiamata a `buildActiveAuctionState` e incluso in `ActiveAuctionState.opponents`. Un profilo per partecipante dai soli `AuctionEntry` già registrati: spesa media e budget residuo (reali), overpay index (prezzo/quotazione medio), concentrazione spesa (Herfindahl-Hirschman rinormalizzato, richiede ≥2 acquisti), preferenza "big" (`valueScore` medio dei giocatori presi), preferenza giovani (età media rispetto al range 18-38), squadra preferita (quota acquisti per squadra). "Aggressività" è una proxy dichiarata (frequenza di sovrapprezzo): il Live Auction Engine registra solo il prezzo finale di ogni inserimento, non i rilanci intermedi che la spec chiederebbe — nessuna aggressività "vera" calcolabile con questo modello dati. Ogni indice non calcolabile per mancanza di dati è `number \| null` (mai un finto 0), visibile in `/auction` come "n/d" nel pannello `OpponentsPanel` |
 | Market Engine (sez. 13) | 🚧 | Motore puro `apps/api/src/lib/market/computeMarketState.ts` (stesso pattern del Player Evaluation Engine: input già estratto dal DB, nessuna dipendenza Prisma/HTTP), ricalcolato ad ogni chiamata a `buildActiveAuctionState` (`routes/auction.ts`) e incluso in `ActiveAuctionState.market`, restituito da `GET /auctions/active` e da ogni mutazione. Calcola tutti e 6 i parametri della spec dai soli `AuctionEntry` già registrati: inflazione prezzi, svalutazione per ruolo, temperatura di mercato (euristica dichiarata su sovra/sotto-pagamento degli ultimi 5 inserimenti, non una probabilità calibrata), budget residuo totale, scarsità titolari per ruolo (frazione di titolari noti già venduti), rilancio medio. "Modifica le valutazioni" (spec) implementato in modo mirato: `EntryBar` in `/auction` mostra un "atteso a mercato" per il giocatore selezionato (quotazione ufficiale rettificata per l'inflazione del suo ruolo) accanto alla quotazione ufficiale, mai al posto di essa — nessun dato persistito viene sovrascritto (vedi §5) |
 | Decision Engine (sez. 14) | ⬜ | Tipo `DecisionRecommendation` definito, nessuna logica |
 | Simulatore (sez. 15) | ⬜ | Non iniziato |
@@ -316,6 +316,22 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   al dettaglio) — un giocatore senza `birthDate` noto viene escluso dal risultato quando il
   filtro età è attivo (mai un'età finta), stesso pattern già usato per prezzo/quotazione
   mancante.
+- **"Aggressività" nel Profilo avversari (sez. 12) è una proxy dichiarata, non i rilanci
+  veri**: la spec chiede "aggressività nei rilanci", ma il Live Auction Engine (sez. 11) non
+  registra rilanci intermedi — solo il prezzo finale di ogni inserimento (giocatore+prezzo+
+  acquirente, l'unico input previsto dalla spec sez. 11 stessa). Costruire un'asta "a voce" con
+  storico dei rilanci sarebbe un cambio di modello dati molto più grande, non fatto qui.
+  `aggressiveness` è quindi calcolata come frequenza di sovrapprezzo rispetto alla quotazione
+  ufficiale — un proxy ragionevole ma esplicitamente etichettato come tale in UI (nota a piè di
+  tabella in `OpponentsPanel`), non spacciato per una misura diretta dei rilanci.
+- **`OpponentProfile` con campi `number | null` dove il dato minimo non c'è**: stesso pattern
+  del Player Evaluation Engine (sez. 8). `spendConcentration` richiede almeno 2 acquisti (con
+  un solo acquisto l'indice di concentrazione vale sempre "tutto su un giocatore", non dice
+  nulla); `overpayIndex`/`aggressiveness` richiedono almeno un acquisto con quotazione nota;
+  `topPlayerPreference`/`youngPlayerPreference` richiedono rispettivamente `valueScore` e
+  `birthDate` noti sui giocatori acquistati. Il tipo originale (scritto in una sessione
+  precedente, prima che il motore esistesse) li dichiarava `number` non nullable: corretto in
+  questa sessione insieme all'implementazione, non lasciato inconsistente.
 
 ## 6. Convenzioni di sviluppo
 
@@ -437,7 +453,11 @@ e ha chiesto esplicitamente, come direzione per il resto del frontend:
    rischio/titolarità, vedi §5).
 9. ~~Market Engine (sez. 13)~~ — fatto: `computeMarketState.ts`, incluso in
    `ActiveAuctionState.market` e visibile in `/auction` (`MarketPanel` + "atteso a mercato" in
-   `EntryBar`). Non ancora testato con dati reali di un'asta vera (stesso limite del punto 7).
-   Prossimo passo naturale: Profilazione avversari (sez. 12), che userebbe gli stessi
-   `AuctionEntry` già disponibili per costruire il profilo di ogni partecipante (aggressività,
-   spesa media, overpay index, ...).
+   `EntryBar`).
+10. ~~Profilazione avversari (sez. 12)~~ — fatto: `computeOpponentProfiles.ts`, incluso in
+    `ActiveAuctionState.opponents` e visibile in `/auction` (`OpponentsPanel`, tabella sotto le
+    rose). Né Market Engine né Profilazione avversari sono ancora stati testati con dati reali
+    di un'asta vera (stesso limite del punto 7: creano dati reali per la lega dell'utente).
+    Prossimo passo naturale: sistema grafico (sez. 10) — ancora ⬜, Recharts installato ma nessun
+    grafico costruito — oppure Decision Engine (sez. 14), che userebbe Market Engine e
+    Profilazione avversari già pronti per rispondere a "conviene rilanciare?".

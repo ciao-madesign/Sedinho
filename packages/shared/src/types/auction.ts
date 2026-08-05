@@ -48,8 +48,8 @@ export interface ParticipantAuctionSummary {
 
 /** Stato completo dell'asta attiva, cosi' come restituito da `GET /auctions/active` — tutto
  * cio' che serve alla console live in un'unica chiamata (sez. 11), incluso lo stato del
- * Market Engine (sez. 13). "Migliori opportunità" (richiesto dalla spec) non c'è ancora:
- * dipende dal Decision Engine (sez. 14), non ancora implementato. */
+ * Market Engine (sez. 13) e i profili avversari (sez. 12). "Migliori opportunità" (richiesto
+ * dalla spec) non c'è ancora: dipende dal Decision Engine (sez. 14), non ancora implementato. */
 export interface ActiveAuctionState {
   id: string;
   leagueId: string;
@@ -57,19 +57,27 @@ export interface ActiveAuctionState {
   entries: AuctionEntryView[];
   participants: ParticipantAuctionSummary[];
   market: MarketState;
+  opponents: OpponentProfile[];
 }
 
-/** Profilo di un partecipante, costruito e aggiornato in tempo reale (sez. 12). */
+/** Profilo di un partecipante, costruito e aggiornato in tempo reale (sez. 12) dai soli
+ * `AuctionEntry` già registrati. La spec parla di "aggressività nei rilanci": il Live Auction
+ * Engine registra solo il prezzo finale di ogni inserimento, non i rilanci intermedi (nessuna
+ * UI di asta "a voce" è mai stata costruita) — `aggressiveness` è quindi una proxy dichiarata
+ * (frequenza di sovrapprezzo rispetto alla quotazione), non una misura diretta dei rilanci.
+ * Ogni indice che richiede almeno un dato non disponibile (nessun inserimento, nessuna
+ * quotazione nota, un solo acquisto per calcolare una concentrazione) è `number | null`, mai
+ * un finto 0 — stesso pattern del Player Evaluation Engine (sez. 8). */
 export interface OpponentProfile {
   participantId: string;
-  aggressiveness: number; // 0..1, propensione ai rilanci
+  aggressiveness: number | null; // 0..1, proxy: frequenza di sovrapprezzo sulla quotazione
   averageSpend: number;
-  topPlayerPreference: number; // 0..1
-  youngPlayerPreference: number; // 0..1
-  teamPreferences: Record<string, number>; // squadra -> peso preferenza
-  spendConcentration: number; // 0..1, quanto concentra la spesa su pochi giocatori
+  topPlayerPreference: number | null; // 0..1, valueScore medio dei giocatori acquistati
+  youngPlayerPreference: number | null; // 0..1, richiede birthDate noto sui giocatori acquistati
+  teamPreferences: Record<string, number>; // squadra -> quota degli acquisti da quella squadra
+  spendConcentration: number | null; // 0..1, richiede almeno 2 acquisti per essere significativo
   remainingBudget: number;
-  overpayIndex: number; // rapporto medio tra prezzo pagato e valore stimato
+  overpayIndex: number | null; // rapporto medio prezzo/quotazione, richiede quotazioni note
   updatedAt: string;
 }
 
