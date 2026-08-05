@@ -1,10 +1,62 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ActiveAuctionState, LeagueConfig, Participant, PlayerListItem } from "@sedinho/shared";
+import type {
+  ActiveAuctionState,
+  AuctionEntryView,
+  LeagueConfig,
+  Participant,
+  PlayerListItem,
+  PlayerRole,
+} from "@sedinho/shared";
 import { ApiError, auctionApi, leaguesApi, participantsApi, playersApi } from "../lib/api.js";
 import { PlayerRoleBadge } from "../components/PlayerRoleBadge.js";
 import { formatCredits, roleLabels } from "../lib/playerFormat.js";
 
-const ROLE_ORDER = ["P", "D", "C", "A"] as const;
+const ROLE_ORDER: PlayerRole[] = ["P", "D", "C", "A"];
+const ROLE_FILTERS: (PlayerRole | "ALL")[] = ["ALL", "P", "D", "C", "A"];
+
+interface SoldInfo {
+  entryId: string;
+  price: number;
+  buyerName: string;
+  buyerId: string;
+}
+
+/** Confronta il prezzo pagato con la quotazione ufficiale (oggi l'unico riferimento di valore
+ * disponibile, vedi value.ts: expectedAuctionPrice === initialQuotation finché il Market
+ * Engine, sez. 13, non esiste). Un'euristica dichiarata, non un giudizio definitivo. */
+function rateOperation(price: number, quotation: number | null) {
+  if (quotation === null || quotation === 0) {
+    return {
+      label: "Nessuna quotazione di riferimento",
+      tone: "text-slate-500",
+      dot: "bg-slate-500",
+      delta: null,
+    };
+  }
+  const delta = price - quotation;
+  if (delta <= 0) {
+    return {
+      label: `${Math.abs(delta)} cr. sotto quotazione`,
+      tone: "text-emerald-400",
+      dot: "bg-emerald-400",
+      delta,
+    };
+  }
+  if (delta <= Math.max(1, Math.round(quotation * 0.15))) {
+    return {
+      label: `${delta} cr. sopra quotazione`,
+      tone: "text-slate-400",
+      dot: "bg-slate-400",
+      delta,
+    };
+  }
+  return {
+    label: `${delta} cr. sopra quotazione`,
+    tone: "text-amber-400",
+    dot: "bg-amber-400",
+    delta,
+  };
+}
 
 function NameParticipantsForm({
   count,
@@ -72,89 +124,113 @@ function NameParticipantsForm({
   );
 }
 
-function PlayerAutocomplete({
+function PlayersBrowserPanel({
   players,
-  excludeIds,
+  soldMap,
+  selectedId,
   onSelect,
 }: {
   players: PlayerListItem[];
-  excludeIds: Set<string>;
+  soldMap: Map<string, SoldInfo>;
+  selectedId: string | null;
   onSelect: (player: PlayerListItem) => void;
 }) {
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
+  const [role, setRole] = useState<PlayerRole | "ALL">("ALL");
+  const [search, setSearch] = useState("");
 
-  const matches = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
     return players
-      .filter((p) => !excludeIds.has(p.id) && p.name.toLowerCase().includes(q))
-      .slice(0, 8);
-  }, [players, excludeIds, query]);
+      .filter((p) => role === "ALL" || p.role === role)
+      .filter((p) => !q || p.name.toLowerCase().includes(q))
+      .sort((a, b) => (b.initialQuotation ?? 0) - (a.initialQuotation ?? 0));
+  }, [players, role, search]);
 
   return (
-    <div className="relative">
-      <input
-        value={query}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          setOpen(true);
-        }}
-        onFocus={() => setOpen(true)}
-        placeholder="Cerca giocatore…"
-        className="w-56 rounded-md border border-slate-800 bg-slate-900 px-3 py-1.5 text-sm placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
-      />
-      {open && matches.length > 0 && (
-        <ul className="absolute z-10 mt-1 w-72 overflow-hidden rounded-md border border-slate-800 bg-slate-900 shadow-lg">
-          {matches.map((p) => (
-            <li key={p.id}>
-              <button
-                type="button"
-                onClick={() => {
-                  onSelect(p);
-                  setQuery(p.name);
-                  setOpen(false);
-                }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-slate-800"
+    <div className="flex h-full flex-col rounded-lg border border-slate-800 bg-slate-900">
+      <div className="space-y-2 border-b border-slate-800 p-3">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Cerca giocatore…"
+          className="w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-1.5 text-sm placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
+        />
+        <div className="flex gap-1 rounded-md border border-slate-800 bg-slate-950 p-1">
+          {ROLE_FILTERS.map((r) => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => setRole(r)}
+              className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
+                role === r ? "bg-emerald-500 text-slate-950" : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              {r === "ALL" ? "Tutti" : r}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="max-h-[65vh] overflow-y-auto lg:max-h-[calc(100vh-260px)]">
+        {filtered.map((p) => {
+          const sold = soldMap.get(p.id);
+          if (sold) {
+            return (
+              <div
+                key={p.id}
+                className="flex items-center gap-2 border-b border-slate-800/60 px-3 py-2 text-sm opacity-40"
               >
                 <PlayerRoleBadge role={p.role} />
-                <span className="flex-1 truncate">{p.name}</span>
-                <span className="text-xs text-slate-500">{p.team}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+                <span className="flex-1 truncate line-through decoration-slate-600">{p.name}</span>
+                <span className="whitespace-nowrap rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-400">
+                  {sold.buyerName} · {formatCredits(sold.price)}
+                </span>
+              </div>
+            );
+          }
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => onSelect(p)}
+              className={`flex w-full items-center gap-2 border-b border-slate-800/60 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-800 ${
+                selectedId === p.id ? "bg-emerald-500/10" : ""
+              }`}
+            >
+              <PlayerRoleBadge role={p.role} />
+              <span className="flex-1 truncate">{p.name}</span>
+              <span className="text-xs text-slate-500">{p.team}</span>
+              <span className="w-10 whitespace-nowrap text-right text-xs tabular-nums text-slate-400">
+                {formatCredits(p.initialQuotation)}
+              </span>
+            </button>
+          );
+        })}
+        {filtered.length === 0 && (
+          <p className="p-4 text-center text-sm text-slate-600">Nessun giocatore trovato.</p>
+        )}
+      </div>
     </div>
   );
 }
 
-function EntryForm({
-  players,
-  auction,
+function EntryBar({
+  selectedPlayer,
+  participants,
+  onClear,
   onSubmit,
 }: {
-  players: PlayerListItem[];
-  auction: ActiveAuctionState;
-  onSubmit: (playerId: string, price: number, buyerId: string) => Promise<void>;
+  selectedPlayer: PlayerListItem | null;
+  participants: ActiveAuctionState["participants"];
+  onClear: () => void;
+  onSubmit: (price: number, buyerId: string) => Promise<void>;
 }) {
-  const [selectedPlayer, setSelectedPlayer] = useState<PlayerListItem | null>(null);
   const [price, setPrice] = useState("");
-  const [buyerId, setBuyerId] = useState(auction.participants[0]?.id ?? "");
+  const [buyerId, setBuyerId] = useState(participants[0]?.id ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const soldIds = useMemo(
-    () => new Set(auction.entries.map((e) => e.player.id)),
-    [auction.entries],
-  );
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedPlayer) {
-      setError("Seleziona un giocatore dalla ricerca.");
-      return;
-    }
     const priceNumber = Number(price);
     if (!Number.isFinite(priceNumber) || priceNumber <= 0) {
       setError("Prezzo non valido.");
@@ -163,8 +239,7 @@ function EntryForm({
     setSubmitting(true);
     setError(null);
     try {
-      await onSubmit(selectedPlayer.id, priceNumber, buyerId);
-      setSelectedPlayer(null);
+      await onSubmit(priceNumber, buyerId);
       setPrice("");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Errore imprevisto.");
@@ -173,21 +248,42 @@ function EntryForm({
     }
   }
 
+  if (!selectedPlayer) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-500">
+        Seleziona un giocatore dall'elenco a sinistra per assegnarlo.
+      </div>
+    );
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
-      <div className="space-y-1">
-        <label className="text-xs uppercase tracking-wide text-slate-500">Giocatore</label>
-        <PlayerAutocomplete
-          players={players}
-          excludeIds={soldIds}
-          onSelect={setSelectedPlayer}
-        />
+    <form
+      onSubmit={handleSubmit}
+      className="flex flex-wrap items-end gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4"
+    >
+      <div className="flex items-center gap-2">
+        <PlayerRoleBadge role={selectedPlayer.role} />
+        <div>
+          <div className="font-medium">{selectedPlayer.name}</div>
+          <div className="text-xs text-slate-500">
+            {selectedPlayer.team} · quotazione {formatCredits(selectedPlayer.initialQuotation)}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClear}
+          className="ml-1 text-slate-600 hover:text-slate-300"
+          title="Deseleziona"
+        >
+          ✕
+        </button>
       </div>
       <div className="space-y-1">
         <label className="text-xs uppercase tracking-wide text-slate-500">Prezzo</label>
         <input
           type="number"
           min={1}
+          autoFocus
           value={price}
           onChange={(e) => setPrice(e.target.value)}
           placeholder="crediti"
@@ -201,7 +297,7 @@ function EntryForm({
           onChange={(e) => setBuyerId(e.target.value)}
           className="rounded-md border border-slate-800 bg-slate-900 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
         >
-          {auction.participants.map((p) => (
+          {participants.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
               {p.isMe ? " (io)" : ""}
@@ -221,42 +317,91 @@ function EntryForm({
   );
 }
 
-function ParticipantsPanel({ auction }: { auction: ActiveAuctionState }) {
+function ParticipantRosterCard({
+  participant,
+  entries,
+  quotationOf,
+  onRemoveEntry,
+}: {
+  participant: ActiveAuctionState["participants"][number];
+  entries: AuctionEntryView[];
+  quotationOf: (playerId: string) => number | null;
+  onRemoveEntry: (entryId: string) => void;
+}) {
+  const sorted = [...entries].sort(
+    (a, b) => ROLE_ORDER.indexOf(a.player.role) - ROLE_ORDER.indexOf(b.player.role),
+  );
+  const spent = entries.reduce((sum, e) => sum + e.price, 0);
+
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {auction.participants.map((p) => (
-        <div
-          key={p.id}
-          className={`rounded-lg border p-4 ${
-            p.isMe ? "border-emerald-500/40 bg-emerald-500/5" : "border-slate-800 bg-slate-900"
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="font-medium">
-              {p.name}
-              {p.isMe && <span className="ml-1.5 text-xs text-emerald-400">(io)</span>}
-            </span>
-            <span className="text-sm tabular-nums text-slate-300">
-              {formatCredits(p.budgetRemaining)}
-            </span>
-          </div>
-          <div className="mt-2 flex gap-2 text-xs">
-            {ROLE_ORDER.map((role) => (
-              <span
-                key={role}
-                className={`rounded px-1.5 py-0.5 ${
-                  p.rosterNeeded[role] > 0
-                    ? "bg-amber-500/10 text-amber-400"
-                    : "bg-slate-800 text-slate-500"
-                }`}
-                title={roleLabels[role]}
-              >
-                {role} {p.rosterCounts[role]}/{p.rosterCounts[role] + p.rosterNeeded[role]}
-              </span>
-            ))}
-          </div>
+    <div
+      className={`flex flex-col rounded-lg border ${
+        participant.isMe ? "border-emerald-500/40 bg-emerald-500/5" : "border-slate-800 bg-slate-900"
+      }`}
+    >
+      <div className="border-b border-slate-800/60 p-3">
+        <div className="flex items-center justify-between">
+          <span className="font-medium">
+            {participant.name}
+            {participant.isMe && <span className="ml-1.5 text-xs text-emerald-400">(io)</span>}
+          </span>
+          <span className="text-sm tabular-nums text-slate-300">
+            {formatCredits(participant.budgetRemaining)}
+          </span>
         </div>
-      ))}
+        <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
+          {ROLE_ORDER.map((role) => (
+            <span
+              key={role}
+              className={`rounded px-1.5 py-0.5 ${
+                participant.rosterNeeded[role] > 0
+                  ? "bg-amber-500/10 text-amber-400"
+                  : "bg-slate-800 text-slate-500"
+              }`}
+              title={roleLabels[role]}
+            >
+              {role} {participant.rosterCounts[role]}/
+              {participant.rosterCounts[role] + participant.rosterNeeded[role]}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="max-h-64 overflow-y-auto">
+        {sorted.length === 0 ? (
+          <p className="p-3 text-xs text-slate-600">Nessun giocatore ancora.</p>
+        ) : (
+          sorted.map((entry) => {
+            const rating = rateOperation(entry.price, quotationOf(entry.player.id));
+            return (
+              <div
+                key={entry.id}
+                className="flex items-center gap-2 border-b border-slate-800/40 px-3 py-1.5 text-sm last:border-0"
+                title={rating.label}
+              >
+                <PlayerRoleBadge role={entry.player.role} />
+                <span className="flex-1 truncate">{entry.player.name}</span>
+                <span className="tabular-nums text-slate-300">{formatCredits(entry.price)}</span>
+                <span
+                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${rating.dot}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => onRemoveEntry(entry.id)}
+                  className="text-slate-700 hover:text-red-400"
+                  title="Annulla"
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })
+        )}
+      </div>
+      {entries.length > 0 && (
+        <div className="border-t border-slate-800/60 px-3 py-1.5 text-right text-xs text-slate-500">
+          speso {formatCredits(spent)}
+        </div>
+      )}
     </div>
   );
 }
@@ -267,6 +412,13 @@ export function AuctionPage() {
   const [auction, setAuction] = useState<ActiveAuctionState | null | undefined>(undefined);
   const [players, setPlayers] = useState<PlayerListItem[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  const [selectedPlayer, setSelectedPlayer] = useState<PlayerListItem | null>(null);
+  const [lastOperation, setLastOperation] = useState<{
+    playerName: string;
+    buyerName: string;
+    price: number;
+    rating: ReturnType<typeof rateOperation>;
+  } | null>(null);
 
   useEffect(() => {
     leaguesApi
@@ -291,6 +443,22 @@ export function AuctionPage() {
       .catch(() => setAuction(null));
   }, [league]);
 
+  const playersById = useMemo(() => new Map((players ?? []).map((p) => [p.id, p])), [players]);
+
+  const soldMap = useMemo(() => {
+    const map = new Map<string, SoldInfo>();
+    if (!auction) return map;
+    for (const entry of auction.entries) {
+      map.set(entry.player.id, {
+        entryId: entry.id,
+        price: entry.price,
+        buyerName: entry.buyer.name,
+        buyerId: entry.buyer.id,
+      });
+    }
+    return map;
+  }, [auction]);
+
   async function handleNameParticipants(names: string[], meIndex: number) {
     const created = await participantsApi.create(names, meIndex);
     setParticipants(created);
@@ -312,9 +480,22 @@ export function AuctionPage() {
     setAuction(null);
   }
 
-  async function handleAddEntry(playerId: string, price: number, buyerId: string) {
-    if (!auction) return;
-    setAuction(await auctionApi.addEntry(auction.id, { playerId, price, buyerId }));
+  async function handleAddEntry(price: number, buyerId: string) {
+    if (!auction || !selectedPlayer) return;
+    const updated = await auctionApi.addEntry(auction.id, {
+      playerId: selectedPlayer.id,
+      price,
+      buyerId,
+    });
+    setAuction(updated);
+    const buyer = updated.participants.find((p) => p.id === buyerId);
+    setLastOperation({
+      playerName: selectedPlayer.name,
+      buyerName: buyer?.name ?? "",
+      price,
+      rating: rateOperation(price, selectedPlayer.initialQuotation),
+    });
+    setSelectedPlayer(null);
   }
 
   async function handleRemoveEntry(entryId: string) {
@@ -333,6 +514,8 @@ export function AuctionPage() {
     await auctionApi.reset();
     setParticipants([]);
     setAuction(null);
+    setSelectedPlayer(null);
+    setLastOperation(null);
   }
 
   if (league === undefined || players === undefined) {
@@ -381,56 +564,61 @@ export function AuctionPage() {
           Inizia asta
         </button>
       ) : (
-        <div className="space-y-6">
-          <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900 p-4">
-            <EntryForm players={players} auction={auction} onSubmit={handleAddEntry} />
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            {lastOperation ? (
+              <p className="text-sm">
+                <span className="font-medium">{lastOperation.playerName}</span> a{" "}
+                <span className="font-medium">{lastOperation.buyerName}</span> per{" "}
+                {formatCredits(lastOperation.price)} —{" "}
+                <span className={lastOperation.rating.tone}>{lastOperation.rating.label}</span>
+              </p>
+            ) : (
+              <span />
+            )}
             <button
               type="button"
               onClick={handleEndAuction}
-              className="ml-4 whitespace-nowrap rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:border-red-500/50 hover:text-red-400"
+              className="whitespace-nowrap rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:border-red-500/50 hover:text-red-400"
             >
               Termina asta
             </button>
           </div>
 
-          <ParticipantsPanel auction={auction} />
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[340px_1fr]">
+            <PlayersBrowserPanel
+              players={players}
+              soldMap={soldMap}
+              selectedId={selectedPlayer?.id ?? null}
+              onSelect={setSelectedPlayer}
+            />
 
-          <div>
-            <h2 className="mb-2 font-medium">Assegnazioni ({auction.entries.length})</h2>
-            {auction.entries.length === 0 ? (
-              <p className="text-sm text-slate-500">Nessuna assegnazione ancora.</p>
-            ) : (
-              <ul className="divide-y divide-slate-900 overflow-hidden rounded-lg border border-slate-800">
-                {auction.entries.map((entry) => (
-                  <li
-                    key={entry.id}
-                    className="flex items-center justify-between gap-3 bg-slate-900 px-4 py-2 text-sm"
-                  >
-                    <span className="flex items-center gap-2">
-                      <PlayerRoleBadge role={entry.player.role} />
-                      <span className="font-medium">{entry.player.name}</span>
-                      <span className="text-slate-500">{entry.player.team}</span>
-                    </span>
-                    <span className="flex items-center gap-3">
-                      <span className="tabular-nums">{formatCredits(entry.price)}</span>
-                      <span className="text-slate-400">→ {entry.buyer.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveEntry(entry.id)}
-                        className="text-xs text-slate-600 hover:text-red-400"
-                      >
-                        annulla
-                      </button>
-                    </span>
-                  </li>
+            <div className="space-y-4">
+              <EntryBar
+                selectedPlayer={selectedPlayer}
+                participants={auction.participants}
+                onClear={() => setSelectedPlayer(null)}
+                onSubmit={handleAddEntry}
+              />
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {auction.participants.map((participant) => (
+                  <ParticipantRosterCard
+                    key={participant.id}
+                    participant={participant}
+                    entries={auction.entries.filter((e) => e.buyer.id === participant.id)}
+                    quotationOf={(playerId) => playersById.get(playerId)?.initialQuotation ?? null}
+                    onRemoveEntry={handleRemoveEntry}
+                  />
                 ))}
-              </ul>
-            )}
+              </div>
+            </div>
           </div>
 
           <p className="text-xs text-slate-500">
-            "Valore di mercato" e "probabilità residue" (previsti dalla spec) non ci sono ancora:
-            dipendono dal Market Engine (sez. 13), non ancora implementato.
+            La valutazione dell'operazione confronta il prezzo pagato con la quotazione ufficiale
+            (unico riferimento disponibile oggi). "Valore di mercato" e "probabilità residue"
+            richiesti dalla spec dipendono dal Market Engine (sez. 13), non ancora implementato.
           </p>
         </div>
       )}

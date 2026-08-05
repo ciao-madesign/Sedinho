@@ -86,7 +86,7 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 | Player Evaluation Engine (sez. 8) | 🚧 | Motore puro in `apps/api/src/lib/evaluation/` (un calcolatore per categoria + `evaluatePlayer` orchestratore, nessuna dipendenza da Prisma/HTTP), ricalcolato in automatico a fine `POST /import/run` (`evaluateAllPlayers`) e salvato come nuova riga `PlayerEvaluation` per giocatore. Indici `number \| null`: `null` = dato non disponibile, sempre spiegato in `explanation.factors`. Con tutti e 3 i connettori ora reali, `explanation.confidence` è significativamente più alta di prima (produzione/bonus/stabilità/affidabilità reali per i giocatori coperti da FSTATS/Fantacalciopedia); resta `null` solo dove nessuna fonte ha dati per quel giocatore/indice specifico |
 | Dashboard (sez. 9) | 🚧 | Header collegato alla League reale (nome, partecipanti, budget, rosa) con CTA a `/setup` se non configurata. Delle 9 sezioni spec, 4 collegate a dati reali (Migliori occasioni, Sopravvalutati, Titolari, Rigoristi/piazzati — vedi §5 sui limiti di "nuovi"); le altre 5 (cambi gerarchia, infortuni, trasferimenti, in crescita/in calo) restano placeholder onesti con la ragione esplicita (richiedono storico o motori non ancora costruiti), non dati finti. Filtri per pannello (sez. 9: ruolo/squadra/fascia prezzo/età/rischio/titolarità) non ancora implementati: oggi solo la pagina `/players` è filtrabile |
 | Sistema grafico (sez. 10) | ⬜ | Recharts installato, nessun grafico ancora implementato |
-| Live Auction Engine (sez. 11) | 🚧 | Nuovo modello `Participant` (chi sono i partecipanti, non solo il numero); `Auction`/`AuctionEntry` ora collegati con foreign key reali (a `League`/`Player`/`Participant`, prima erano stringhe libere). Rotte `apps/api/src/routes/auction.ts`: nomina partecipanti, avvia/termina asta, aggiungi/rimuovi un inserimento (giocatore+prezzo+acquirente, l'unico input richiesto dalla spec), con validazione budget e "un giocatore non può essere venduto due volte nella stessa asta" (vincolo DB). Ogni inserimento ricalcola budget residuo e fabbisogno di ruolo per tutti i partecipanti (da zero, non incrementale — scala di un'asta personale). UI: `/auction`, form a 3 input. **Non implementati** (dipendono da motori sez. 12-14, tutti ⬜): valore di mercato, probabilità residue, migliori opportunità — omessi, non inventati |
+| Live Auction Engine (sez. 11) | 🚧 | Nuovo modello `Participant` (chi sono i partecipanti, non solo il numero); `Auction`/`AuctionEntry` ora collegati con foreign key reali (a `League`/`Player`/`Participant`, prima erano stringhe libere). Rotte `apps/api/src/routes/auction.ts`: nomina partecipanti, avvia/termina asta, aggiungi/rimuovi un inserimento (giocatore+prezzo+acquirente, l'unico input richiesto dalla spec), reset di partecipanti/asta per fare prove, con validazione budget e "un giocatore non può essere venduto due volte nella stessa asta" (vincolo DB). Ogni inserimento ricalcola budget residuo e fabbisogno di ruolo per tutti i partecipanti (da zero, non incrementale — scala di un'asta personale). UI `/auction` a due colonne: pannello giocatori filtrabile per ruolo/nome con quelli già assegnati mostrati ingrigiti (badge acquirente + prezzo pagato), rosa di ogni partecipante visibile in tempo reale con prezzo reale per giocatore, valutazione sintetica dell'operazione (prezzo pagato vs quotazione ufficiale, unico riferimento disponibile oggi). **Non implementati** (dipendono da motori sez. 12-14, tutti ⬜): valore di mercato "vero" (Market Engine), probabilità residue, migliori opportunità — omessi, non inventati |
 | Profilazione avversari (sez. 12) | ⬜ | Modello `OpponentProfile` presente, calcolo non implementato |
 | Market Engine (sez. 13) | ⬜ | Tipo `MarketState` definito, non calcolato |
 | Decision Engine (sez. 14) | ⬜ | Tipo `DecisionRecommendation` definito, nessuna logica |
@@ -265,6 +265,29 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   dell'asta vera senza doversi portare dietro dati di test (la nomina dei partecipanti è
   altrimenti irreversibile, `POST /participants` risponde 409 se già fatta). Pulsante "Reset"
   in `/auction`, con conferma nativa del browser: non c'è undo, va usato consapevolmente.
+- **`/auction` a due colonne, non un form isolato**: pannello sinistro con l'intero database
+  giocatori filtrabile (ruolo + nome), ordinato per quotazione decrescente; cliccare un
+  giocatore lo seleziona per l'assegnazione invece di doverlo ridigitare in un autocomplete
+  separato (l'autocomplete della prima versione è stato rimosso, ridondante con questo
+  pannello). I giocatori già assegnati non spariscono dalla lista: restano visibili ingrigiti
+  con badge acquirente+prezzo, cosi' rimane chiaro chi è ancora disponibile scorrendo tutta la
+  rosa. Rosa di ogni partecipante sempre visibile (non dietro un accordion) con prezzo pagato
+  per ogni giocatore e un indicatore a pallino colorato (`rateOperation` in `AuctionPage.tsx`)
+  che confronta prezzo pagato e quotazione ufficiale — placeholder onesto finché non esiste un
+  vero Market Engine (sez. 13). Le classi Tailwind per il colore del pallino sono stringhe
+  letterali (`bg-emerald-400` ecc.), mai costruite a runtime con `.replace()`: Tailwind scansiona
+  il sorgente per stringhe di classe statiche, una classe assemblata dinamicamente non verrebbe
+  inclusa nel CSS generato e il pallino risulterebbe invisibile.
+- **Un push su GitHub può disallinearsi dal checkout locale del sandbox tra un turno e
+  l'altro**: durante questa sessione un commit (`48c70f0`, il reset dell'asta) risultava assente
+  da `git log` locale nonostante fosse stato pushato con successo in un turno precedente e
+  verificato live su Vercel — il container aveva ripristinato uno stato del filesystem
+  antecedente a quel commit, ma il branch remoto era intatto. Verificato interrogando
+  direttamente l'API GitHub (`list_commits`) invece di fidarsi solo di `git log`/`git status`
+  locali; risolto con `git fetch` + `git merge --ff-only` (mai `reset --hard`, per non perdere
+  lavoro locale non ancora pushato) prima di ricreare qualsiasi modifica "mancante" a mano.
+  Se una modifica fatta in un turno precedente sembra sparita, controllare prima lo stato reale
+  su GitHub piuttosto che assumere che non sia mai stata salvata.
 
 ## 6. Convenzioni di sviluppo
 
