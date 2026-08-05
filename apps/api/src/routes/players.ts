@@ -45,6 +45,7 @@ export async function playerRoutes(app: FastifyInstance) {
         name: player.name,
         team: player.team,
         role: player.role as PlayerListItem["role"],
+        birthDate: player.birthDate ? player.birthDate.toISOString() : null,
         availability: player.availability as PlayerListItem["availability"],
         initialQuotation: player.initialQuotation ?? null,
         valueScore: latestEvaluation?.value.valueScore ?? null,

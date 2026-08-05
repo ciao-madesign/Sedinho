@@ -47,3 +47,17 @@ export function formatCredits(value: number | null): string {
   if (value === null) return "—";
   return `${Math.round(value)} cr.`;
 }
+
+/** Età in anni compiuti da `birthDate` (ISO), o `null` se la data non è nota. */
+export function computeAge(birthDate: string | null): number | null {
+  if (!birthDate) return null;
+  const birth = new Date(birthDate);
+  if (Number.isNaN(birth.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const monthDiff = now.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birth.getDate())) {
+    age -= 1;
+  }
+  return age;
+}

@@ -79,6 +79,7 @@ export interface PlayerListItem {
   name: string;
   team: string;
   role: PlayerRole;
+  birthDate: string | null;
   availability: PlayerAvailability;
   initialQuotation: number | null;
   /** Percentile della quotazione tra i giocatori dello stesso ruolo (0..1), vedi `value.ts`. */

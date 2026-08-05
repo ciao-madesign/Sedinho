@@ -4,6 +4,12 @@ import type { LeagueConfig, PlayerListItem } from "@sedinho/shared";
 import { leaguesApi, playersApi } from "../lib/api.js";
 import { ImportPanel } from "../components/ImportPanel.js";
 import { PlayerRoleBadge } from "../components/PlayerRoleBadge.js";
+import {
+  DashboardFiltersBar,
+  applyDashboardFilters,
+  defaultDashboardFilters,
+  type DashboardFiltersState,
+} from "../components/DashboardFilters.js";
 import { formatCredits, formatPercent, setPieceLabels } from "../lib/playerFormat.js";
 
 interface DashboardSectionData {
@@ -17,6 +23,7 @@ interface DashboardSectionData {
 export function DashboardPage() {
   const [league, setLeague] = useState<LeagueConfig | null | undefined>(undefined);
   const [players, setPlayers] = useState<PlayerListItem[] | null>(null);
+  const [filters, setFilters] = useState<DashboardFiltersState>(defaultDashboardFilters);
 
   useEffect(() => {
     leaguesApi
@@ -26,8 +33,20 @@ export function DashboardPage() {
     playersApi.list().then(setPlayers).catch(() => setPlayers(null));
   }, []);
 
+  const teams = useMemo(() => {
+    if (!players) return [];
+    return Array.from(new Set(players.map((p) => p.team).filter(Boolean))).sort();
+  }, [players]);
+
+  const filteredPlayers = useMemo(
+    () => (players ? applyDashboardFilters(players, filters) : null),
+    [players, filters],
+  );
+
+  const filtersActive = JSON.stringify(filters) !== JSON.stringify(defaultDashboardFilters);
+
   const sections = useMemo<DashboardSectionData[]>(() => {
-    const withValue = (players ?? []).filter((p) => p.valueScore !== null);
+    const withValue = (filteredPlayers ?? []).filter((p) => p.valueScore !== null);
     const withQuotation = withValue.filter((p) => (p.initialQuotation ?? 0) > 1);
     const medianQuotation =
       withQuotation.length > 0
@@ -45,12 +64,12 @@ export function DashboardPage() {
       .sort((a, b) => (a.valueScore ?? 0) - (b.valueScore ?? 0))
       .slice(0, 5);
 
-    const starters = (players ?? [])
+    const starters = (filteredPlayers ?? [])
       .filter((p) => p.hierarchyLevel === "starter")
       .sort((a, b) => (b.starterProbability ?? 0) - (a.starterProbability ?? 0))
       .slice(0, 5);
 
-    const setPieceTakers = (players ?? [])
+    const setPieceTakers = (filteredPlayers ?? [])
       .filter((p) => p.setPieceTypes.length > 0)
       .slice(0, 5);
 
@@ -109,7 +128,7 @@ export function DashboardPage() {
         emptyReason: "Serve uno storico multi-stagione: oggi è disponibile solo l'ultima stagione completata.",
       },
     ];
-  }, [players]);
+  }, [filteredPlayers]);
 
   return (
     <div className="space-y-6">
@@ -137,6 +156,9 @@ export function DashboardPage() {
         )}
       </div>
       <ImportPanel />
+      {players && (
+        <DashboardFiltersBar filters={filters} onChange={setFilters} teams={teams} />
+      )}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {sections.map((section) => (
           <div key={section.title} className="rounded-lg border border-slate-800 bg-slate-900 p-4">
@@ -167,7 +189,10 @@ export function DashboardPage() {
               <p className="mt-2 text-sm text-slate-500">
                 {players === null
                   ? "Nessun dato disponibile."
-                  : (section.emptyReason ?? "Nessun dato disponibile.")}
+                  : (section.emptyReason ??
+                    (filtersActive
+                      ? "Nessun giocatore corrisponde ai filtri attuali."
+                      : "Nessun dato disponibile."))}
               </p>
             )}
           </div>

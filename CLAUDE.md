@@ -84,7 +84,7 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 | Transfer Engine (sez. 6) | ⬜ | Modello dati presente (`Transfer`), motore di calcolo impatto non implementato |
 | Rotation Engine (sez. 7) | ⬜ | Modello dati presente (`TeamRotationProfile`), coefficienti non calcolati |
 | Player Evaluation Engine (sez. 8) | 🚧 | Motore puro in `apps/api/src/lib/evaluation/` (un calcolatore per categoria + `evaluatePlayer` orchestratore, nessuna dipendenza da Prisma/HTTP), ricalcolato in automatico a fine `POST /import/run` (`evaluateAllPlayers`) e salvato come nuova riga `PlayerEvaluation` per giocatore. Indici `number \| null`: `null` = dato non disponibile, sempre spiegato in `explanation.factors`. Con tutti e 3 i connettori ora reali, `explanation.confidence` è significativamente più alta di prima (produzione/bonus/stabilità/affidabilità reali per i giocatori coperti da FSTATS/Fantacalciopedia); resta `null` solo dove nessuna fonte ha dati per quel giocatore/indice specifico |
-| Dashboard (sez. 9) | 🚧 | Header collegato alla League reale (nome, partecipanti, budget, rosa) con CTA a `/setup` se non configurata. Delle 9 sezioni spec, 4 collegate a dati reali (Migliori occasioni, Sopravvalutati, Titolari, Rigoristi/piazzati — vedi §5 sui limiti di "nuovi"); le altre 5 (cambi gerarchia, infortuni, trasferimenti, in crescita/in calo) restano placeholder onesti con la ragione esplicita (richiedono storico o motori non ancora costruiti), non dati finti. Filtri per pannello (sez. 9: ruolo/squadra/fascia prezzo/età/rischio/titolarità) non ancora implementati: oggi solo la pagina `/players` è filtrabile |
+| Dashboard (sez. 9) | 🚧 | Header collegato alla League reale (nome, partecipanti, budget, rosa) con CTA a `/setup` se non configurata. Delle 9 sezioni spec, 4 collegate a dati reali (Migliori occasioni, Sopravvalutati, Titolari, Rigoristi/piazzati — vedi §5 sui limiti di "nuovi"); le altre 5 (cambi gerarchia, infortuni, trasferimenti, in crescita/in calo) restano placeholder onesti con la ragione esplicita (richiedono storico o motori non ancora costruiti), non dati finti. **Filtri implementati**: `DashboardFiltersBar` (`components/DashboardFilters.tsx`) — ruolo, squadra, fascia prezzo (quotazione), età, rischio (disponibilità), titolarità, tutti quelli richiesti dalla spec sez. 9 — filtra il pool di giocatori condiviso da tutte le sezioni prima che ognuna estragga la propria top-5 (vedi §5 sulla scelta di una barra unica invece di controlli per pannello) |
 | Sistema grafico (sez. 10) | ⬜ | Recharts installato, nessun grafico ancora implementato |
 | Live Auction Engine (sez. 11) | 🚧 | Nuovo modello `Participant` (chi sono i partecipanti, non solo il numero); `Auction`/`AuctionEntry` ora collegati con foreign key reali (a `League`/`Player`/`Participant`, prima erano stringhe libere). Rotte `apps/api/src/routes/auction.ts`: nomina partecipanti, avvia/termina asta, aggiungi/rimuovi un inserimento (giocatore+prezzo+acquirente, l'unico input richiesto dalla spec), reset di partecipanti/asta per fare prove, con validazione budget e "un giocatore non può essere venduto due volte nella stessa asta" (vincolo DB). Ogni inserimento ricalcola budget residuo e fabbisogno di ruolo per tutti i partecipanti (da zero, non incrementale — scala di un'asta personale). UI `/auction` a due colonne: pannello giocatori filtrabile per ruolo/nome con quelli già assegnati mostrati ingrigiti (badge acquirente + prezzo pagato), rosa di ogni partecipante visibile in tempo reale con prezzo reale per giocatore, valutazione sintetica dell'operazione (prezzo pagato vs quotazione ufficiale, unico riferimento disponibile oggi). **Non implementati** (dipendono da motori sez. 12-14, tutti ⬜): valore di mercato "vero" (Market Engine), probabilità residue, migliori opportunità — omessi, non inventati |
 | Profilazione avversari (sez. 12) | ⬜ | Modello `OpponentProfile` presente, calcolo non implementato |
@@ -296,6 +296,19 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   lavoro locale non ancora pushato) prima di ricreare qualsiasi modifica "mancante" a mano.
   Se una modifica fatta in un turno precedente sembra sparita, controllare prima lo stato reale
   su GitHub piuttosto che assumere che non sia mai stata salvata.
+- **Filtri Dashboard: una barra condivisa, non un set di controlli per pannello**: la spec
+  (sez. 9) dice "ogni pannello sarà filtrabile per ruolo, squadra, fascia prezzo, età, rischio,
+  titolarità". Interpretazione scelta: un'unica `DashboardFiltersBar` sopra la griglia di
+  sezioni filtra il pool di `PlayerListItem` condiviso da tutte le sezioni prima che ciascuna
+  estragga la propria top-5 — ogni pannello resta "filtrabile" (riflette la barra), ma senza
+  duplicare 6 controlli per ognuna delle 9 sezioni. Coerente con la direzione UX "interfaccia
+  semplice, pochi input" (sez. 9 di questo file). "Rischio" è mappato sul campo reale
+  `availability` (disponibile vs infortunato/squalificato/in dubbio) — non esiste ancora un
+  indice di rischio calcolato, quindi si usa il dato più vicino disponibile invece di inventare
+  una metrica. "Età" richiede `birthDate`: aggiunto a `PlayerListItem` (non c'era, serviva solo
+  al dettaglio) — un giocatore senza `birthDate` noto viene escluso dal risultato quando il
+  filtro età è attivo (mai un'età finta), stesso pattern già usato per prezzo/quotazione
+  mancante.
 
 ## 6. Convenzioni di sviluppo
 
@@ -397,11 +410,10 @@ e ha chiesto esplicitamente, come direzione per il resto del frontend:
    La curva euristica rango→probabilità dei rigoristi (`fantacalciopedia.ts`) è un candidato
    naturale da rivedere con calma.
 2. ~~Implementare il Player Evaluation Engine~~ — fatto: `apps/api/src/lib/evaluation/`.
-3. ~~Collegare la Dashboard a dati reali~~ — fatto parzialmente: `PlayersPage`/
-   `PlayerDetailPage` sono collegate a dati reali con filtri; 4 delle 9 sezioni Dashboard
-   sono reali, le altre 5 sono placeholder onesti (vedi sez. 4). Restano da fare: i filtri
-   per pannello richiesti dalla spec (ruolo/squadra/fascia prezzo/età/rischio/titolarità —
-   oggi solo `/players` è filtrabile) prima di investire nel sistema grafico (sez. 10).
+3. ~~Collegare la Dashboard a dati reali~~ — fatto: `PlayersPage`/`PlayerDetailPage` collegate
+   a dati reali con filtri; 4 delle 9 sezioni Dashboard sono reali, le altre 5 sono placeholder
+   onesti (vedi sez. 4). ~~Filtri per pannello~~ — fatto: `DashboardFiltersBar` (ruolo/squadra/
+   fascia prezzo/età/rischio/titolarità, vedi §5). Prossimo naturale: sistema grafico (sez. 10).
 4. ~~Aggiungere una vista di dettaglio giocatore~~ — fatto: `PlayerDetailPage`, collegata a
    `GET /players/:id`, mostra tutta la `Explanation` per categoria.
 5. Valutare se/quando introdurre il parsing assistito da AI del regolamento (BYOK,
