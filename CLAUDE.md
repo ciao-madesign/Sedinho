@@ -79,12 +79,12 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 | Tipi di dominio condivisi (`packages/shared`) | ✅ | League (+ EntryFee/PrizePool/CupFormat), Player, SeasonStats, Hierarchy, SetPieces, TeamRotation, Transfer, PlayerEvaluation, Auction/Market/Decision |
 | Schema DB (Prisma/SQLite) | ✅ | Rispecchia i tipi condivisi; 2 migrazioni applicate (`init`, `league-financials`) |
 | Setup Wizard (sez. 3) | ✅ | 4 step reali (Struttura, Economia, Regolamento, Riepilogo) in `SetupWizardPage` + `components/setup-wizard/*`, collegati a `POST`/`PUT /leagues`; precompilato (editabile) con il regolamento reale "Travedona Serie A"; regole (`ParsedRule[]`) inserite tramite form strutturato manuale, non parsing automatico (vedi §5) |
-| Database centrale giocatori (sez. 4) | 🚧 | Schema pronto (incl. `initialQuotation`), API di lettura (`GET /players`, `GET /players/:id`); **popolato con dati reali** (~760 giocatori, cresce ad ogni "Aggiorna Database" con trasferimenti/nuovi arrivi) tramite i 3 connettori attivi in produzione; nessuna UI di dettaglio giocatore |
+| Database centrale giocatori (sez. 4) | ✅ | Schema pronto (incl. `initialQuotation`), API di lettura (`GET /players` con filtri ruolo/squadra/ricerca + riassunto valutazione, `GET /players/:id` con dettaglio completo); **popolato con dati reali** (~760 giocatori, cresce ad ogni "Aggiorna Database" con trasferimenti/nuovi arrivi) tramite i 3 connettori attivi in produzione; UI: `PlayersPage` (lista filtrabile/ordinabile) + `PlayerDetailPage` (spiegazione completa per categoria) |
 | Sistema di aggiornamento / scraping (sez. 5) | 🚧 | Pipeline completa: `POST /import/run` (pulsante "Aggiorna Database" in Dashboard) orchestra connettori modulari (`ImportConnector`) e fa upsert con source/reliability. **Tutti e 3 i connettori sono reali e verificati in produzione**: Fantacalcio.it/quotazioni (identità/quotazione/ruolo, unico autorizzato a creare nuovi `Player`), FSTATS (in realtà `fantacalcio.it/statistiche-serie-a/{stagione}`, statistiche stagione precedente), Fantacalciopedia (gerarchie "titolare" + rigoristi/tiratori punizioni). Vedi §5 decisioni per il matching fuzzy per nome e `canCreatePlayers` |
 | Transfer Engine (sez. 6) | ⬜ | Modello dati presente (`Transfer`), motore di calcolo impatto non implementato |
 | Rotation Engine (sez. 7) | ⬜ | Modello dati presente (`TeamRotationProfile`), coefficienti non calcolati |
 | Player Evaluation Engine (sez. 8) | 🚧 | Motore puro in `apps/api/src/lib/evaluation/` (un calcolatore per categoria + `evaluatePlayer` orchestratore, nessuna dipendenza da Prisma/HTTP), ricalcolato in automatico a fine `POST /import/run` (`evaluateAllPlayers`) e salvato come nuova riga `PlayerEvaluation` per giocatore. Indici `number \| null`: `null` = dato non disponibile, sempre spiegato in `explanation.factors`. Con tutti e 3 i connettori ora reali, `explanation.confidence` è significativamente più alta di prima (produzione/bonus/stabilità/affidabilità reali per i giocatori coperti da FSTATS/Fantacalciopedia); resta `null` solo dove nessuna fonte ha dati per quel giocatore/indice specifico |
-| Dashboard (sez. 9) | 🚧 | Header collegato alla League reale (nome, partecipanti, budget, rosa) con CTA a `/setup` se non configurata; sezioni ancora placeholder, nessun filtro |
+| Dashboard (sez. 9) | 🚧 | Header collegato alla League reale (nome, partecipanti, budget, rosa) con CTA a `/setup` se non configurata. Delle 9 sezioni spec, 4 collegate a dati reali (Migliori occasioni, Sopravvalutati, Titolari, Rigoristi/piazzati — vedi §5 sui limiti di "nuovi"); le altre 5 (cambi gerarchia, infortuni, trasferimenti, in crescita/in calo) restano placeholder onesti con la ragione esplicita (richiedono storico o motori non ancora costruiti), non dati finti. Filtri per pannello (sez. 9: ruolo/squadra/fascia prezzo/età/rischio/titolarità) non ancora implementati: oggi solo la pagina `/players` è filtrabile |
 | Sistema grafico (sez. 10) | ⬜ | Recharts installato, nessun grafico ancora implementato |
 | Live Auction Engine (sez. 11) | ⬜ | Modelli `Auction`/`AuctionEntry` presenti, nessuna UI/logica |
 | Profilazione avversari (sez. 12) | ⬜ | Modello `OpponentProfile` presente, calcolo non implementato |
@@ -216,6 +216,26 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   prima che il progetto Vercel esistesse, ed è anche la causa del bug di routing su
   `api/[...path].ts` descritto in sez. 8: quel percorso di deploy non passa dalla build da
   git e ha trattato il nome file con parentesi in modo diverso).
+- **`GET /players` restituisce `PlayerListItem` (riga snella), non l'intero `Player` +
+  relazioni**: solo il riassunto della `PlayerEvaluation` più recente (`valueScore`,
+  `expectedAuctionPrice`, `starterProbability`, `confidence`) più `hierarchyLevel` e
+  `setPieceTypes`, non l'intera `Explanation` con tutti i `factors` — troppo pesante per
+  ~760 giocatori in un'unica risposta. Il dettaglio completo (inclusa la spiegazione per
+  categoria) resta su `GET /players/:id`, usato da `PlayerDetailPage`.
+- **Le collezioni annidate su `GET /players/:id` (seasonStats, hierarchies, setPieceRoles) non
+  passano da un mapper verso i tipi condivisi con `meta: DataSourceMeta`**: sono le righe
+  Prisma cosi' come sono (`source`/`updatedAt`/`reliability` come campi piatti). Solo
+  `evaluations` attraversa `evaluation-mapper.ts`. Il frontend (`apps/web/src/lib/api.ts`)
+  definisce tipi locali (`PlayerSeasonStatsRow` ecc.) che rispecchiano la risposta reale
+  invece di riusare i tipi condivisi mismatched — scelta pragmatica per ora, un mapper
+  dedicato (stesso pattern di `league-mapper.ts`/`evaluation-mapper.ts`) è un refactor pulito
+  disponibile per il futuro se questi campi iniziano a servire altrove.
+- **Il sandbox di sviluppo non raggiunge nemmeno Neon (porta 5432), non solo i siti da
+  scrapare**: `npm run dev:api` in locale fallisce con "Can't reach database server" anche
+  con `DATABASE_URL` correttamente valorizzata (verificato: la env var arriva al processo,
+  è la connessione TCP a fallire). Quindi anche la UI non è testabile in locale in questa
+  sessione — verificata invece sul deploy Vercel di produzione (che ha accesso reale), stessa
+  tecnica già usata per i connettori.
 
 ## 6. Convenzioni di sviluppo
 
@@ -290,7 +310,24 @@ questi siti direttamente (vedi sopra). Stesso schema per Fantacalcio.it (quotazi
 2026), FSTATS/`fantacalcio.it/statistiche-serie-a` (statistiche, questa sessione) e
 Fantacalciopedia (gerarchie/rigoristi, questa sessione).
 
-## 9. Prossimi passi consigliati
+## 9. Direzione UX (richiesta esplicita dell'utente, agosto 2026)
+
+L'utente ha fornito il logo principale (`apps/web/public/logo.png`, usato in header e favicon)
+e ha chiesto esplicitamente, come direzione per il resto del frontend:
+
+- **Interfaccia semplice, pochi input, molto accattivante graficamente** — non un pannello
+  tecnico denso di controlli, un prodotto curato. Vale come criterio guida per ogni nuova
+  schermata, non solo per quelle già fatte.
+- **Tab dedicate per le aree funzionali principali della spec**, in particolare: asta live
+  (sez. 11), simulazione di campionato/Simulatore (sez. 15), schermate di confronto tra
+  giocatori/squadre/ruoli (sez. 10, "grafici sovrapponibili"). Man mano che questi motori
+  vengono implementati (oggi tutti ⬜, vedi sez. 4), vanno accompagnati da una tab/route
+  dedicata in `apps/web`, non ammassati nella Dashboard.
+- Non è un'implementazione da fare subito: è la lente con cui valutare ogni scelta di UI da
+  qui in avanti. Quando si affronta sez. 10 (grafici), 11 (asta live) o 15 (simulatore),
+  ripartire da qui prima di improvvisare la UI.
+
+## 10. Prossimi passi consigliati
 
 1. ~~Completare i connettori stub FSTATS e Fantacalciopedia~~ — fatto, tutti e 3 reali e
    verificati in produzione (vedi sez. 4 e 5, incluso l'incidente `canCreatePlayers` e la
@@ -300,11 +337,13 @@ Fantacalciopedia (gerarchie/rigoristi, questa sessione).
    La curva euristica rango→probabilità dei rigoristi (`fantacalciopedia.ts`) è un candidato
    naturale da rivedere con calma.
 2. ~~Implementare il Player Evaluation Engine~~ — fatto: `apps/api/src/lib/evaluation/`.
-3. Collegare la Dashboard a dati reali con i filtri richiesti (sez. 9 della spec) prima di
-   investire nel sistema grafico (sez. 10).
-4. Aggiungere una vista di dettaglio giocatore in `apps/web`, collegata a
-   `GET /players/:id` (già pronta lato API, ora include anche l'ultima `PlayerEvaluation`
-   calcolata, con relativa `Explanation`).
+3. ~~Collegare la Dashboard a dati reali~~ — fatto parzialmente: `PlayersPage`/
+   `PlayerDetailPage` sono collegate a dati reali con filtri; 4 delle 9 sezioni Dashboard
+   sono reali, le altre 5 sono placeholder onesti (vedi sez. 4). Restano da fare: i filtri
+   per pannello richiesti dalla spec (ruolo/squadra/fascia prezzo/età/rischio/titolarità —
+   oggi solo `/players` è filtrabile) prima di investire nel sistema grafico (sez. 10).
+4. ~~Aggiungere una vista di dettaglio giocatore~~ — fatto: `PlayerDetailPage`, collegata a
+   `GET /players/:id`, mostra tutta la `Explanation` per categoria.
 5. Valutare se/quando introdurre il parsing assistito da AI del regolamento (BYOK,
    vedi §5): non urgente, il form strutturato manuale del Setup Wizard copre già il
    caso d'uso attuale.

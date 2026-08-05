@@ -70,6 +70,27 @@ export interface SetPieceRole {
   meta: DataSourceMeta;
 }
 
+/** Riga snella per liste/filtri (sez. 4 e 9, "Dashboard"): solo i campi anagrafici + il
+ * riassunto della `PlayerEvaluation` più recente, non l'intera `Explanation` con tutti i
+ * `factors` (troppo pesante per una lista di ~700 giocatori). Prodotta da `GET /players`,
+ * per il dettaglio completo (inclusa la spiegazione) vedi `GET /players/:id`. */
+export interface PlayerListItem {
+  id: string;
+  name: string;
+  team: string;
+  role: PlayerRole;
+  availability: PlayerAvailability;
+  initialQuotation: number | null;
+  /** Percentile della quotazione tra i giocatori dello stesso ruolo (0..1), vedi `value.ts`. */
+  valueScore: number | null;
+  expectedAuctionPrice: number | null;
+  starterProbability: number | null;
+  hierarchyLevel: HierarchyLevel | null;
+  setPieceTypes: SetPieceType[];
+  /** Frazione di indici calcolati con dati reali sui 20 totali della `PlayerEvaluation`. */
+  confidence: number | null;
+}
+
 /** Profilo di rotazione stimato per una squadra (sez. 4, "Rotazioni"). */
 export interface TeamRotationProfile {
   id: string;

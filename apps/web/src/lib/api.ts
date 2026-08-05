@@ -1,4 +1,14 @@
-import type { ImportRunSummary, LeagueConfig, LeagueDraft } from "@sedinho/shared";
+import type {
+  HierarchyLevel,
+  ImportRunSummary,
+  LeagueConfig,
+  LeagueDraft,
+  PlayerAvailability,
+  PlayerEvaluation,
+  PlayerListItem,
+  PlayerRole,
+  SetPieceType,
+} from "@sedinho/shared";
 
 const API_BASE = "/api";
 
@@ -39,4 +49,86 @@ export const leaguesApi = {
 
 export const importApi = {
   run: () => api.post<ImportRunSummary>("/import/run", {}),
+};
+
+export interface PlayersFilter {
+  role?: PlayerRole;
+  team?: string;
+  search?: string;
+}
+
+/** Le collezioni annidate su GET /players/:id sono le righe Prisma cosi' come sono (source/
+ * updatedAt/reliability come campi piatti), non i tipi condivisi con `meta: DataSourceMeta`:
+ * quel mapping non e' ancora stato scritto lato API (solo le evaluations lo attraversano, via
+ * evaluation-mapper.ts). Tipi qui rispecchiano la risposta reale, non lo schema "ideale". */
+export interface PlayerSeasonStatsRow {
+  id: string;
+  season: string;
+  competition: string;
+  appearances: number;
+  minutes: number;
+  fantasyAvg: number;
+  averageRating: number;
+  goals: number;
+  assists: number;
+  xG: number;
+  xA: number;
+  shots: number;
+  shotsOnTarget: number;
+  yellowCards: number;
+  redCards: number;
+  penaltiesScored: number;
+  penaltiesTaken: number;
+  cleanSheets: number;
+  expectedBonus: number;
+  source: string;
+  reliability: number;
+}
+
+export interface PlayerHierarchyRow {
+  id: string;
+  level: HierarchyLevel;
+  reliability: number;
+  source: string;
+}
+
+export interface PlayerSetPieceRow {
+  id: string;
+  type: SetPieceType;
+  probability: number;
+  source: string;
+}
+
+export interface PlayerDetail {
+  id: string;
+  name: string;
+  team: string;
+  role: PlayerRole;
+  birthDate: string | null;
+  nationality: string | null;
+  foot: "left" | "right" | "both" | null;
+  availability: PlayerAvailability;
+  estimatedRecoveryDate: string | null;
+  initialQuotation: number | null;
+  source: string;
+  reliability: number;
+  seasonStats: PlayerSeasonStatsRow[];
+  hierarchies: PlayerHierarchyRow[];
+  setPieceRoles: PlayerSetPieceRow[];
+  evaluations: PlayerEvaluation[];
+}
+
+function toQueryString(params: Record<string, string | undefined>): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value) query.set(key, value);
+  }
+  const qs = query.toString();
+  return qs ? `?${qs}` : "";
+}
+
+export const playersApi = {
+  list: (filter: PlayersFilter = {}) =>
+    api.get<PlayerListItem[]>(`/players${toQueryString({ ...filter })}`),
+  get: (id: string) => api.get<PlayerDetail>(`/players/${id}`),
 };
