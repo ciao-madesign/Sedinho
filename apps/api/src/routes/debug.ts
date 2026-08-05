@@ -1,10 +1,16 @@
 import * as cheerio from "cheerio";
 import type { FastifyInstance } from "fastify";
+import { runImport } from "../import/runImport.js";
 
 /** Rotta temporanea per ispezionare il markup reale di fstats.it e fantacalciopedia.com da
  * un ambiente (Vercel) che ha accesso a internet, dato che il sandbox di sviluppo non ce
  * l'ha. Da rimuovere una volta corretti i selettori nei rispettivi connettori. */
 export async function debugRoutes(app: FastifyInstance) {
+  // GET invece di POST /import/run: serve solo a poter verificare i nuovi connettori da
+  // questa sessione tramite un fetch GET (mcp Vercel web_fetch_vercel_url), senza dover
+  // ricorrere a un client HTTP POST che il sandbox non ha. Rimossa insieme al resto.
+  app.get("/debug/run-import", async () => runImport());
+
   app.get("/debug/fetch", async (request, reply) => {
     const url = (request.query as Record<string, string>).url;
     if (!url) {
