@@ -121,11 +121,13 @@ export async function debugRoutes(app: FastifyInstance) {
       matches[keyword] = found;
     }
 
+    const limit = Number(query.limit) || 5;
+    const maxLen = Number(query.maxLen) || 1500;
     let selectorSnippets: string[] | undefined;
     if (selector) {
       selectorSnippets = $(selector)
-        .slice(0, 5)
-        .map((_, el) => $(el).prop("outerHTML")?.slice(0, 1500) ?? "")
+        .slice(0, limit)
+        .map((_, el) => $(el).prop("outerHTML")?.slice(0, maxLen) ?? "")
         .get();
     }
 
