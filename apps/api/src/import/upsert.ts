@@ -34,7 +34,10 @@ const SEASON_STATS_FIELDS = [
  * confronto esatto dopo trim: non esiste ancora un id esterno persistito per fonte, quindi
  * fonti che usano una grafia diversa per lo stesso giocatore creeranno record duplicati
  * (limite noto e documentato in CLAUDE.md, da risolvere con una tabella di mapping dedicata
- * se/quando diventa un problema pratico). */
+ * se/quando diventa un problema pratico). Se il match esatto fallisce, si tenta un fallback
+ * per nome normalizzato (vedi findPlayerByFuzzyName): necessario perche' Fantacalciopedia e
+ * la pagina statistiche di Fantacalcio.it usano grafie/ordine diversi (es. "BARELLA NICOLO'"
+ * o "Martinez L.") rispetto al nome completo del listone quotazioni. */
 export async function upsertPlayerImportRecords(
   records: PlayerImportRecord[],
   context: UpsertContext,
@@ -65,18 +68,56 @@ export async function upsertPlayerImportRecords(
   return { upserted, errors };
 }
 
+/** Riduce un nome a un set di token confrontabili tra fonti con grafie diverse: minuscolo,
+ * senza accenti/apostrofi, filtrando i token troppo corti (iniziali puntate come "L.") che
+ * darebbero falsi positivi. */
+function normalizeNameTokens(name: string): string[] {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/['".]/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3);
+}
+
+/** Fallback quando il match esatto (name, team) fallisce: cerca un giocatore esistente (dello
+ * stesso ruolo, se noto) che condivida almeno un token di nome/cognome col record importato.
+ * Accettato solo se il match e' univoco: in caso di ambiguita' (es. due giocatori con lo
+ * stesso cognome) si preferisce non abbinare piuttosto che rischiare un abbinamento sbagliato. */
+async function findPlayerByFuzzyName(name: string, role: PlayerImportRecord["role"]) {
+  const tokens = new Set(normalizeNameTokens(name));
+  if (tokens.size === 0) return null;
+
+  const candidates = await prisma.player.findMany({ where: role ? { role } : undefined });
+  const matches = candidates.filter((candidate) =>
+    normalizeNameTokens(candidate.name).some((token) => tokens.has(token)),
+  );
+
+  return matches.length === 1 ? (matches[0] ?? null) : null;
+}
+
 async function findOrCreatePlayer(record: PlayerImportRecord, context: UpsertContext) {
   const name = record.name.trim();
   const team = record.team.trim();
-  const existing = await prisma.player.findFirst({ where: { name, team } });
+  let existing = await prisma.player.findFirst({ where: { name, team } });
+  const matchedByFuzzyName = !existing;
+
+  if (!existing) {
+    existing = await findPlayerByFuzzyName(name, record.role);
+  }
 
   if (!existing && !record.role) {
     return null;
   }
 
   const data = {
-    name,
-    team,
+    // Se il match e' avvenuto per nome fuzzy, name/team scritti dalla fonte non sono
+    // affidabili quanto quelli gia' salvati (es. cognome-solo o sigla squadra diversa):
+    // si aggiornano solo i campi che questa fonte conosce davvero (ruolo, quotazione).
+    name: matchedByFuzzyName && existing ? existing.name : name,
+    team: matchedByFuzzyName && existing ? existing.team : team,
     role: record.role ?? existing!.role,
     initialQuotation: record.initialQuotation ?? existing?.initialQuotation,
     source: context.source,
