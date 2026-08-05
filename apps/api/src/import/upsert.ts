@@ -92,17 +92,28 @@ function normalizeNameTokens(name: string): string[] {
 /** Fallback quando il match esatto (name, team) fallisce: cerca un giocatore esistente (dello
  * stesso ruolo, se noto) che condivida almeno un token di nome/cognome col record importato.
  * Accettato solo se il match e' univoco: in caso di ambiguita' (es. due giocatori con lo
- * stesso cognome) si preferisce non abbinare piuttosto che rischiare un abbinamento sbagliato. */
+ * stesso cognome) si preferisce non abbinare piuttosto che rischiare un abbinamento sbagliato.
+ * Se la ricerca filtrata per ruolo non trova nulla, si ritenta senza filtro: le fonti non
+ * sono sempre d'accordo sulla classificazione di ruolo di un giocatore (es. trequartisti
+ * classificati "C" da una fonte e "A" da un'altra), e scartare un match altrimenti univoco
+ * solo per un disaccordo di ruolo sarebbe piu' dannoso del rischio di ambiguita' residua. */
 async function findPlayerByFuzzyName(name: string, role: PlayerImportRecord["role"]) {
   const tokens = new Set(normalizeNameTokens(name));
   if (tokens.size === 0) return null;
 
-  const candidates = await prisma.player.findMany({ where: role ? { role } : undefined });
-  const matches = candidates.filter((candidate) =>
-    normalizeNameTokens(candidate.name).some((token) => tokens.has(token)),
-  );
+  const findUnique = async (where?: { role: NonNullable<typeof role> }) => {
+    const candidates = await prisma.player.findMany({ where });
+    const matches = candidates.filter((candidate) =>
+      normalizeNameTokens(candidate.name).some((token) => tokens.has(token)),
+    );
+    return matches.length === 1 ? (matches[0] ?? null) : null;
+  };
 
-  return matches.length === 1 ? (matches[0] ?? null) : null;
+  if (role) {
+    const byRole = await findUnique({ role });
+    if (byRole) return byRole;
+  }
+  return findUnique(undefined);
 }
 
 async function findOrCreatePlayer(record: PlayerImportRecord, context: UpsertContext) {
