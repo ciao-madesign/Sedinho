@@ -216,6 +216,12 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   prima che il progetto Vercel esistesse, ed è anche la causa del bug di routing su
   `api/[...path].ts` descritto in sez. 8: quel percorso di deploy non passa dalla build da
   git e ha trattato il nome file con parentesi in modo diverso).
+- **Ogni push va sempre replicato su `main`, senza fermarsi a verificare l'esito del deploy**:
+  richiesta esplicita dell'utente. Il branch di lavoro (`claude/sedinho-project-foundation-
+  3weesw` o equivalente) resta la storia di sviluppo, ma `main` deve restare allineato ad ogni
+  push perché è l'unico branch che Vercel builda in produzione (vedi sopra). Non serve
+  interrogare `list_deployments`/`get_deployment` per controllare che il build sia `READY`:
+  se il deploy fallisce, se ne accorge l'utente stesso controllando manualmente.
 - **`GET /players` restituisce `PlayerListItem` (riga snella), non l'intero `Player` +
   relazioni**: solo il riassunto della `PlayerEvaluation` più recente (`valueScore`,
   `expectedAuctionPrice`, `starterProbability`, `confidence`) più `hierarchyLevel` e
