@@ -266,18 +266,26 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   altrimenti irreversibile, `POST /participants` risponde 409 se già fatta). Pulsante "Reset"
   in `/auction`, con conferma nativa del browser: non c'è undo, va usato consapevolmente.
 - **`/auction` a due colonne, non un form isolato**: pannello sinistro con l'intero database
-  giocatori filtrabile (ruolo + nome), ordinato per quotazione decrescente; cliccare un
-  giocatore lo seleziona per l'assegnazione invece di doverlo ridigitare in un autocomplete
-  separato (l'autocomplete della prima versione è stato rimosso, ridondante con questo
-  pannello). I giocatori già assegnati non spariscono dalla lista: restano visibili ingrigiti
-  con badge acquirente+prezzo, cosi' rimane chiaro chi è ancora disponibile scorrendo tutta la
-  rosa. Rosa di ogni partecipante sempre visibile (non dietro un accordion) con prezzo pagato
-  per ogni giocatore e un indicatore a pallino colorato (`rateOperation` in `AuctionPage.tsx`)
-  che confronta prezzo pagato e quotazione ufficiale — placeholder onesto finché non esiste un
-  vero Market Engine (sez. 13). Le classi Tailwind per il colore del pallino sono stringhe
-  letterali (`bg-emerald-400` ecc.), mai costruite a runtime con `.replace()`: Tailwind scansiona
-  il sorgente per stringhe di classe statiche, una classe assemblata dinamicamente non verrebbe
-  inclusa nel CSS generato e il pallino risulterebbe invisibile.
+  giocatori filtrabile (ruolo, squadra, nome) e ordinabile (prezzo, valore, prob. titolare,
+  nome); cliccare un giocatore lo seleziona per l'assegnazione invece di doverlo ridigitare in
+  un autocomplete separato (l'autocomplete della prima versione è stato rimosso, ridondante con
+  questo pannello). La metrica mostrata a destra di ogni riga segue l'ordinamento scelto, cosi'
+  si vede sempre il numero per cui si sta ordinando. I giocatori già assegnati non spariscono
+  dalla lista: restano visibili ingrigiti con badge acquirente+prezzo, cosi' rimane chiaro chi è
+  ancora disponibile scorrendo tutta la rosa. Rosa di ogni partecipante sempre visibile (non
+  dietro un accordion) con prezzo pagato per ogni giocatore e un indicatore a pallino colorato
+  (`rateOperation` in `AuctionPage.tsx`) che confronta prezzo pagato e quotazione ufficiale —
+  placeholder onesto finché non esiste un vero Market Engine (sez. 13). Le classi Tailwind per
+  il colore del pallino sono stringhe letterali (`bg-emerald-400` ecc.), mai costruite a
+  runtime con `.replace()`: Tailwind scansiona il sorgente per stringhe di classe statiche, una
+  classe assemblata dinamicamente non verrebbe inclusa nel CSS generato e il pallino
+  risulterebbe invisibile.
+- **"Valore" nel pannello giocatori dell'asta è `value.valueScore` (Player Evaluation Engine,
+  sez. 8), non una valutazione del Market Engine**: l'utente ha chiesto di ordinare per
+  "valutazione market engine", ma quel motore (sez. 13) non esiste ancora — usato l'indice più
+  vicino disponibile oggi (percentile della quotazione tra i giocatori dello stesso ruolo) con
+  l'etichetta "Valore" già usata altrove nell'app (`PlayersPage`), non rinominato per finta
+  precisione che non c'è.
 - **Un push su GitHub può disallinearsi dal checkout locale del sandbox tra un turno e
   l'altro**: durante questa sessione un commit (`48c70f0`, il reset dell'asta) risultava assente
   da `git log` locale nonostante fosse stato pushato con successo in un turno precedente e

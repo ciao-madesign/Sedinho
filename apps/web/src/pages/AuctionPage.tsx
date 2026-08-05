@@ -124,6 +124,28 @@ function NameParticipantsForm({
   );
 }
 
+type BrowserSortKey = "quotation" | "value" | "starter" | "name";
+
+const BROWSER_SORT_OPTIONS: { key: BrowserSortKey; label: string }[] = [
+  { key: "quotation", label: "Prezzo" },
+  { key: "value", label: "Valore" },
+  { key: "starter", label: "Prob. titolare" },
+  { key: "name", label: "Nome" },
+];
+
+/** Metrica mostrata sulla destra di ogni riga, coerente con l'ordinamento scelto: cosi' si
+ * vede sempre il numero per cui si sta ordinando, non solo la quotazione fissa. */
+function browserMetric(p: PlayerListItem, sortKey: BrowserSortKey): string {
+  switch (sortKey) {
+    case "value":
+      return p.valueScore !== null ? `${Math.round(p.valueScore * 100)}%` : "—";
+    case "starter":
+      return p.starterProbability !== null ? `${Math.round(p.starterProbability * 100)}%` : "—";
+    default:
+      return formatCredits(p.initialQuotation);
+  }
+}
+
 function PlayersBrowserPanel({
   players,
   soldMap,
@@ -136,15 +158,34 @@ function PlayersBrowserPanel({
   onSelect: (player: PlayerListItem) => void;
 }) {
   const [role, setRole] = useState<PlayerRole | "ALL">("ALL");
+  const [team, setTeam] = useState("ALL");
   const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<BrowserSortKey>("quotation");
+
+  const teams = useMemo(
+    () => Array.from(new Set(players.map((p) => p.team).filter(Boolean))).sort(),
+    [players],
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return players
       .filter((p) => role === "ALL" || p.role === role)
+      .filter((p) => team === "ALL" || p.team === team)
       .filter((p) => !q || p.name.toLowerCase().includes(q))
-      .sort((a, b) => (b.initialQuotation ?? 0) - (a.initialQuotation ?? 0));
-  }, [players, role, search]);
+      .sort((a, b) => {
+        switch (sortKey) {
+          case "value":
+            return (b.valueScore ?? -1) - (a.valueScore ?? -1);
+          case "starter":
+            return (b.starterProbability ?? -1) - (a.starterProbability ?? -1);
+          case "name":
+            return a.name.localeCompare(b.name);
+          default:
+            return (b.initialQuotation ?? -1) - (a.initialQuotation ?? -1);
+        }
+      });
+  }, [players, role, team, search, sortKey]);
 
   return (
     <div className="flex h-full flex-col rounded-lg border border-slate-800 bg-slate-900">
@@ -168,6 +209,31 @@ function PlayersBrowserPanel({
               {r === "ALL" ? "Tutti" : r}
             </button>
           ))}
+        </div>
+        <div className="flex gap-2">
+          <select
+            value={team}
+            onChange={(e) => setTeam(e.target.value)}
+            className="flex-1 rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5 text-xs focus:border-emerald-500 focus:outline-none"
+          >
+            <option value="ALL">Tutte le squadre</option>
+            {teams.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as BrowserSortKey)}
+            className="flex-1 rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5 text-xs focus:border-emerald-500 focus:outline-none"
+          >
+            {BROWSER_SORT_OPTIONS.map((opt) => (
+              <option key={opt.key} value={opt.key}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
       <div className="max-h-[65vh] overflow-y-auto lg:max-h-[calc(100vh-260px)]">
@@ -200,7 +266,7 @@ function PlayersBrowserPanel({
               <span className="flex-1 truncate">{p.name}</span>
               <span className="text-xs text-slate-500">{p.team}</span>
               <span className="w-10 whitespace-nowrap text-right text-xs tabular-nums text-slate-400">
-                {formatCredits(p.initialQuotation)}
+                {browserMetric(p, sortKey)}
               </span>
             </button>
           );
