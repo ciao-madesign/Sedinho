@@ -260,6 +260,11 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   `AuctionEntry` impedisce di vendere due volte lo stesso giocatore nella stessa asta anche in
   caso di race condition; il prezzo viene comunque validato anche applicativamente contro il
   budget residuo del partecipante prima dell'insert (calcolato ricostruendo lo stato, vedi sopra).
+- **`POST /auctions/reset`**: cancella tutti i `Participant` e le `Auction` (con `AuctionEntry`
+  in cascata) della lega — richiesto esplicitamente dall'utente per poter fare prove prima
+  dell'asta vera senza doversi portare dietro dati di test (la nomina dei partecipanti è
+  altrimenti irreversibile, `POST /participants` risponde 409 se già fatta). Pulsante "Reset"
+  in `/auction`, con conferma nativa del browser: non c'è undo, va usato consapevolmente.
 
 ## 6. Convenzioni di sviluppo
 

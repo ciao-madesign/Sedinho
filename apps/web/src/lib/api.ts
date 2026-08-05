@@ -152,4 +152,7 @@ export const auctionApi = {
     api.post<ActiveAuctionState>(`/auctions/${id}/entries`, entry),
   removeEntry: (id: string, entryId: string) =>
     api.delete<ActiveAuctionState>(`/auctions/${id}/entries/${entryId}`),
+  /** Cancella partecipanti + aste (con relative assegnazioni) della lega: per fare prove
+   * prima dell'asta vera senza doversi portare dietro dati di test. */
+  reset: () => api.post<{ reset: true }>("/auctions/reset", {}),
 };

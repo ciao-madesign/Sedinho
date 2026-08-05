@@ -322,6 +322,19 @@ export function AuctionPage() {
     setAuction(await auctionApi.removeEntry(auction.id, entryId));
   }
 
+  async function handleReset() {
+    if (
+      !confirm(
+        "Azzerare partecipanti, asta e tutte le assegnazioni? Utile per fare prove, non è reversibile.",
+      )
+    ) {
+      return;
+    }
+    await auctionApi.reset();
+    setParticipants([]);
+    setAuction(null);
+  }
+
   if (league === undefined || players === undefined) {
     return <p className="text-slate-400">Caricamento…</p>;
   }
@@ -331,12 +344,24 @@ export function AuctionPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Asta</h1>
-        <p className="mt-1 text-slate-400">
-          {league.name} — {league.participants} partecipanti, {league.initialBudget} crediti a
-          testa.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Asta</h1>
+          <p className="mt-1 text-slate-400">
+            {league.name} — {league.participants} partecipanti, {league.initialBudget} crediti a
+            testa.
+          </p>
+        </div>
+        {(participants?.length ?? 0) > 0 && (
+          <button
+            type="button"
+            onClick={handleReset}
+            title="Azzera partecipanti, asta e assegnazioni — utile per fare prove"
+            className="whitespace-nowrap rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-500 hover:border-red-500/50 hover:text-red-400"
+          >
+            Reset
+          </button>
+        )}
       </div>
 
       {error && <p className="text-sm text-red-400">{error}</p>}

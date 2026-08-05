@@ -134,6 +134,19 @@ export async function auctionRoutes(app: FastifyInstance) {
     return buildActiveAuctionState(auction.id);
   });
 
+  // Cancella tutti i Participant e le Auction (con relativi AuctionEntry, in cascata) della
+  // lega: pensata per fare prove prima dell'asta vera senza doversi portare dietro dati di
+  // test — richiesta esplicita dell'utente, non usata da nessun flusso automatico.
+  app.post("/auctions/reset", async (_request, reply) => {
+    const league = await getSingleLeague();
+    if (!league) return reply.code(404).send({ error: "Nessuna lega configurata" });
+
+    await prisma.auction.deleteMany({ where: { leagueId: league.id } });
+    await prisma.participant.deleteMany({ where: { leagueId: league.id } });
+
+    return { reset: true };
+  });
+
   app.post("/auctions", async (_request, reply) => {
     const league = await getSingleLeague();
     if (!league) return reply.code(404).send({ error: "Nessuna lega configurata" });
