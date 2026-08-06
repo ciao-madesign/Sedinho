@@ -1,5 +1,6 @@
 import type {
   ActiveAuctionState,
+  AuctionUndoResult,
   DecisionRecommendation,
   HierarchyLevel,
   ImportRunSummary,
@@ -164,6 +165,9 @@ export const auctionApi = {
     auctionId: string,
     body: { playerId: string; buyerId?: string; candidatePrice?: number },
   ) => api.post<DecisionRecommendation>(`/auctions/${auctionId}/decision`, body),
+  /** "Annulla ultima azione" (sez. 11): un solo livello di undo sull'evento più recente
+   * dell'asta (assegnazione o rimozione), non uno storico completo. */
+  undo: (auctionId: string) => api.post<AuctionUndoResult>(`/auctions/${auctionId}/undo`, {}),
 };
 
 export const shortlistApi = {

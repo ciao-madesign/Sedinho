@@ -840,6 +840,8 @@ export function AuctionPage() {
     price: number;
     rating: ReturnType<typeof rateOperation>;
   } | null>(null);
+  const [undoMessage, setUndoMessage] = useState<string | null>(null);
+  const [undoLoading, setUndoLoading] = useState(false);
   const shortlist = useShortlist();
 
   useEffect(() => {
@@ -902,6 +904,25 @@ export function AuctionPage() {
     setAuction(null);
   }
 
+  async function handleUndo() {
+    if (!auction) return;
+    setUndoLoading(true);
+    setLastOperation(null);
+    try {
+      const result = await auctionApi.undo(auction.id);
+      setAuction(result.state);
+      setUndoMessage(
+        result.undone.type === "assign"
+          ? `Annullato: ${result.undone.playerName} non è più assegnato a ${result.undone.buyerName}.`
+          : `Ripristinato: ${result.undone.playerName} torna assegnato a ${result.undone.buyerName}.`,
+      );
+    } catch (err) {
+      setUndoMessage(err instanceof ApiError ? err.message : "Errore imprevisto.");
+    } finally {
+      setUndoLoading(false);
+    }
+  }
+
   async function handleAddEntry(price: number, buyerId: string) {
     if (!auction || !selectedPlayer) return;
     const updated = await auctionApi.addEntry(auction.id, {
@@ -917,6 +938,7 @@ export function AuctionPage() {
       price,
       rating: rateOperation(price, selectedPlayer.initialQuotation),
     });
+    setUndoMessage(null);
     setSelectedPlayer(null);
   }
 
@@ -931,6 +953,7 @@ export function AuctionPage() {
   async function handleRemoveEntry(entryId: string) {
     if (!auction) return;
     setAuction(await auctionApi.removeEntry(auction.id, entryId));
+    setUndoMessage(null);
   }
 
   async function handleReset() {
@@ -995,8 +1018,10 @@ export function AuctionPage() {
         </button>
       ) : (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            {lastOperation ? (
+          <div className="flex items-center justify-between gap-3">
+            {undoMessage ? (
+              <p className="text-sm text-sky-300">{undoMessage}</p>
+            ) : lastOperation ? (
               <p className="text-sm">
                 <span className="font-medium">{lastOperation.playerName}</span> a{" "}
                 <span className="font-medium">{lastOperation.buyerName}</span> per{" "}
@@ -1006,13 +1031,24 @@ export function AuctionPage() {
             ) : (
               <span />
             )}
-            <button
-              type="button"
-              onClick={handleEndAuction}
-              className="whitespace-nowrap rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:border-red-500/50 hover:text-red-400"
-            >
-              Termina asta
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={handleUndo}
+                disabled={undoLoading}
+                title="Annulla l'ultimo inserimento o l'ultima rimozione in questa asta"
+                className="whitespace-nowrap rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:border-sky-500/50 hover:text-sky-300 disabled:opacity-40"
+              >
+                {undoLoading ? "…" : "Annulla ultima azione"}
+              </button>
+              <button
+                type="button"
+                onClick={handleEndAuction}
+                className="whitespace-nowrap rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:border-red-500/50 hover:text-red-400"
+              >
+                Termina asta
+              </button>
+            </div>
           </div>
 
           <ShortlistPanel

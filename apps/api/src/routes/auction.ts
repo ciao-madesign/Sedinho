@@ -22,6 +22,7 @@ async function buildActiveAuctionState(auctionId: string): Promise<ActiveAuction
     where: { id: auctionId },
     include: {
       entries: {
+        where: { revokedAt: null },
         orderBy: { timestamp: "desc" },
         include: { player: true, buyer: true },
       },
@@ -266,8 +267,8 @@ export async function auctionRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: "Acquirente non valido" });
     }
 
-    const alreadySold = await prisma.auctionEntry.findUnique({
-      where: { auctionId_playerId: { auctionId: auction.id, playerId } },
+    const alreadySold = await prisma.auctionEntry.findFirst({
+      where: { auctionId: auction.id, playerId, revokedAt: null },
     });
     if (alreadySold) {
       return reply.code(409).send({ error: `${player.name} è già stato assegnato in questa asta.` });
@@ -289,13 +290,67 @@ export async function auctionRoutes(app: FastifyInstance) {
     "/auctions/:id/entries/:entryId",
     async (request, reply) => {
       const entry = await prisma.auctionEntry.findUnique({ where: { id: request.params.entryId } });
-      if (!entry || entry.auctionId !== request.params.id) {
+      if (!entry || entry.auctionId !== request.params.id || entry.revokedAt) {
         return reply.code(404).send({ error: "Inserimento non trovato" });
       }
-      await prisma.auctionEntry.delete({ where: { id: entry.id } });
+      // Soft-delete (revokedAt), non un DELETE vero: cosi' "Annulla ultima azione" può
+      // ripristinare anche una rimozione fatta da qui, non solo dal pulsante dedicato.
+      await prisma.auctionEntry.update({
+        where: { id: entry.id },
+        data: { revokedAt: new Date() },
+      });
       return buildActiveAuctionState(request.params.id);
     },
   );
+
+  // "Annulla ultima azione" (sez. 11, richiesto esplicitamente dall'utente): trova l'evento
+  // più recente tra tutti gli inserimenti dell'asta — o la creazione di un inserimento attivo
+  // (campo `timestamp`) o la rimozione di uno annullato (campo `revokedAt`) — e lo inverte.
+  // Un solo livello di undo (l'ultimo evento), non uno storico completo: coerente con lo scope
+  // "solo asta live" scelto esplicitamente, non un undo generico per tutta l'app.
+  app.post<{ Params: { id: string } }>("/auctions/:id/undo", async (request, reply) => {
+    const auction = await prisma.auction.findUnique({ where: { id: request.params.id } });
+    if (!auction) return reply.code(404).send({ error: "Asta non trovata" });
+
+    const [lastActive, lastRevoked] = await Promise.all([
+      prisma.auctionEntry.findFirst({
+        where: { auctionId: auction.id, revokedAt: null },
+        orderBy: { timestamp: "desc" },
+        include: { player: true, buyer: true },
+      }),
+      prisma.auctionEntry.findFirst({
+        where: { auctionId: auction.id, revokedAt: { not: null } },
+        orderBy: { revokedAt: "desc" },
+        include: { player: true, buyer: true },
+      }),
+    ]);
+
+    const lastActiveAt = lastActive?.timestamp.getTime() ?? -Infinity;
+    const lastRevokedAt = lastRevoked?.revokedAt?.getTime() ?? -Infinity;
+
+    if (lastActiveAt === -Infinity && lastRevokedAt === -Infinity) {
+      return reply.code(400).send({ error: "Niente da annullare in questa asta." });
+    }
+
+    let undone: { type: "assign" | "remove"; playerName: string; buyerName: string };
+    if (lastRevokedAt > lastActiveAt) {
+      // L'ultimo evento e' stata una rimozione: la si ripristina.
+      await prisma.auctionEntry.update({
+        where: { id: lastRevoked!.id },
+        data: { revokedAt: null },
+      });
+      undone = { type: "remove", playerName: lastRevoked!.player.name, buyerName: lastRevoked!.buyer.name };
+    } else {
+      // L'ultimo evento e' stata un'assegnazione: la si annulla (soft-delete).
+      await prisma.auctionEntry.update({
+        where: { id: lastActive!.id },
+        data: { revokedAt: new Date() },
+      });
+      undone = { type: "assign", playerName: lastActive!.player.name, buyerName: lastActive!.buyer.name };
+    }
+
+    return { undone, state: await buildActiveAuctionState(auction.id) };
+  });
 
   // Decision Engine (sez. 14): risponde on-demand per un candidato specifico (giocatore +
   // eventuale prezzo proposto), non pre-calcolato per tutti i giocatori ad ogni poll

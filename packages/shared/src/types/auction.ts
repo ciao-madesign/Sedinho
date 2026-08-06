@@ -101,3 +101,11 @@ export interface DecisionRecommendation {
   confidence: number; // 0..1
   explanation: Explanation;
 }
+
+/** Risultato di "Annulla ultima azione" (sez. 11, richiesto esplicitamente dall'utente): un
+ * solo livello di undo, sull'evento più recente dell'asta (assegnazione o rimozione di un
+ * inserimento), non uno storico completo — scope volutamente limitato all'asta live. */
+export interface AuctionUndoResult {
+  undone: { type: "assign" | "remove"; playerName: string; buyerName: string };
+  state: ActiveAuctionState;
+}

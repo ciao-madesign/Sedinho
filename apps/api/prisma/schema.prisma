@@ -254,10 +254,17 @@ model AuctionEntry {
   buyerId String
   buyer   Participant @relation(fields: [buyerId], references: [id])
 
-  timestamp DateTime @default(now())
+  timestamp DateTime  @default(now())
+  // Soft-delete per "Annulla ultima azione" (sez. 11, richiesto esplicitamente dall'utente):
+  // null = inserimento attivo, valorizzato = annullato. Serve a poter "ripristinare" l'ultima
+  // rimozione senza aver perso i dati della riga (un DELETE vero non sarebbe reversibile).
+  revokedAt DateTime?
 
-  // Un giocatore puo' essere assegnato una sola volta per asta.
-  @@unique([auctionId, playerId])
+  // Un giocatore puo' essere assegnato una sola volta PER ASTA TRA GLI INSERIMENTI ATTIVI:
+  // vincolo reale solo come indice unico parziale (WHERE revokedAt IS NULL), applicato via SQL
+  // nella migrazione — Prisma schema language non supporta unique constraint con WHERE clause,
+  // quindi non è dichiarato qui con @@unique (che sarebbe un unique su tutta la tabella e
+  // impedirebbe di riassegnare un giocatore dopo un annulla). Vedi migration.sql.
   @@index([auctionId])
   @@index([playerId])
   @@index([buyerId])
