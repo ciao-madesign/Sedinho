@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
+import { useAuth } from "../lib/AuthContext.js";
 
 const navItems = [
   { to: "/", label: "Dashboard" },
@@ -9,6 +10,8 @@ const navItems = [
 ];
 
 export function Layout() {
+  const { user, logout } = useAuth();
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div
@@ -28,7 +31,7 @@ export function Layout() {
             />
             <span className="text-lg font-semibold tracking-tight">Sedinho</span>
           </NavLink>
-          <nav className="flex gap-1 text-sm">
+          <nav className="flex items-center gap-1 text-sm">
             {navItems.map((item) => (
               <NavLink
                 key={item.to}
@@ -45,6 +48,18 @@ export function Layout() {
                 {item.label}
               </NavLink>
             ))}
+            {user && (
+              <span className="ml-3 flex items-center gap-2 border-l border-slate-800 pl-3">
+                <span className="text-xs text-slate-500">{user.name}</span>
+                <button
+                  type="button"
+                  onClick={() => logout()}
+                  className="rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-900 hover:text-slate-300"
+                >
+                  Esci
+                </button>
+              </span>
+            )}
           </nav>
         </div>
       </header>

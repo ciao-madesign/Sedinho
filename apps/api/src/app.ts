@@ -1,5 +1,7 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import { registerAuthGuard } from "./lib/authGuard.js";
+import { authRoutes } from "./routes/auth.js";
 import { healthRoutes } from "./routes/health.js";
 import { leagueRoutes } from "./routes/leagues.js";
 import { playerRoutes } from "./routes/players.js";
@@ -14,7 +16,13 @@ import { shortlistRoutes } from "./routes/shortlist.js";
 export async function buildApp() {
   const app = Fastify({ logger: true });
 
-  await app.register(cors, { origin: true });
+  await app.register(cors, { origin: true, credentials: true });
+
+  // Autenticazione (richiesta esplicitamente dall'utente, vedi CLAUDE.md sez. 5): registrata
+  // prima di tutte le altre rotte, l'hook onRequest che aggiunge protegge tutto cio' che
+  // registriamo dopo tranne health/register/login.
+  await registerAuthGuard(app);
+  await app.register(authRoutes);
 
   await app.register(healthRoutes);
   await app.register(leagueRoutes);

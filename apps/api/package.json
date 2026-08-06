@@ -21,17 +21,18 @@
     "prisma:migrate": "prisma migrate dev"
   },
   "dependencies": {
+    "@fastify/cookie": "^9.4.0",
+    "@fastify/cors": "^9.0.1",
     "@prisma/client": "^5.22.0",
     "@sedinho/shared": "*",
-    "fastify": "^4.29.0",
-    "@fastify/cors": "^9.0.1",
     "cheerio": "^1.0.0",
+    "fastify": "^4.29.0",
     "playwright": "^1.48.2"
   },
   "devDependencies": {
+    "@types/node": "^22.9.0",
     "prisma": "^5.22.0",
     "tsx": "^4.19.2",
-    "typescript": "^5.6.3",
-    "@types/node": "^22.9.0"
+    "typescript": "^5.6.3"
   }
 }

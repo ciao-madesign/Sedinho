@@ -89,6 +89,7 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 | Sistema grafico (sez. 10) | ⬜ | Recharts installato, nessun grafico ancora implementato |
 | Live Auction Engine (sez. 11) | 🚧 | Nuovo modello `Participant` (chi sono i partecipanti, non solo il numero); `Auction`/`AuctionEntry` ora collegati con foreign key reali (a `League`/`Player`/`Participant`, prima erano stringhe libere). Rotte `apps/api/src/routes/auction.ts`: nomina partecipanti, avvia/termina asta, aggiungi/rimuovi un inserimento (giocatore+prezzo+acquirente, l'unico input richiesto dalla spec), reset di partecipanti/asta per fare prove, con validazione budget e "un giocatore non può essere venduto due volte nella stessa asta" (vincolo DB). Ogni inserimento ricalcola budget residuo e fabbisogno di ruolo per tutti i partecipanti (da zero, non incrementale — scala di un'asta personale). UI `/auction` a due colonne: pannello giocatori filtrabile per ruolo/nome con quelli già assegnati mostrati ingrigiti (badge acquirente + prezzo pagato), rosa di ogni partecipante visibile in tempo reale con prezzo reale per giocatore, valutazione sintetica dell'operazione (prezzo pagato vs quotazione ufficiale, unico riferimento disponibile oggi), pannello **Obiettivi** (shortlist, vedi riga sotto) e **Market Engine** sopra le rose, pulsante "Conviene rilanciare?" nell'`EntryBar` collegato al Decision Engine, pulsante **"Annulla ultima azione"** (undo, richiesto esplicitamente dall'utente, scope limitato all'asta live) che inverte l'evento più recente (assegnazione o rimozione) via soft-delete su `AuctionEntry.revokedAt` — vedi §5. **Non implementato**: "migliori opportunità" dipende da domande del Decision Engine non ancora coperte — omesso, non inventato |
 | Shortlist / Obiettivi d'asta (non in spec, richiesto esplicitamente dall'utente) | ✅ | Modello `ShortlistEntry` (`playerId` univoco, nota opzionale), single-user come tutto il resto dell'app (nessuno scoping per lega/partecipante, vedi §5). Rotte `apps/api/src/routes/shortlist.ts`: `GET/POST/PATCH/DELETE /shortlist`, arricchito con la valutazione più recente (stesso riassunto di `PlayerListItem`) e, se c'è un'asta attiva, con lo stato di vendita in tempo reale. UI: stella (`ShortlistStarButton`) per aggiungere/rimuovere da `PlayersPage`, `PlayerDetailPage` e dal pannello giocatori dell'asta; nuova pagina dedicata `/shortlist` (tab "Obiettivi" in nav) per la gestione fuori asta; pannello dedicato in `/auction` (sopra il Market Engine, quindi sempre visibile senza scroll) che mostra gli obiettivi con lo stesso stato di vendita live del pannello giocatori principale — richiesto esplicitamente dall'utente di essere "in vista anche durante l'asta" |
+| Autenticazione (non in spec, richiesta esplicitamente dall'utente) | ✅ | Modelli `User`/`Session` (Prisma). Non e' multi-tenancy: più utenti possono avere un account ma condividono tutti gli stessi dati (una sola `League`, vedi sotto "singola lega attiva") — serve solo a impedire che chiunque trovi l'URL pubblico veda/modifichi la lega, richiesta esplicita dell'utente ("in futuro magari più utenti e più leghe", oggi solo il primo pezzo). Sessioni come righe DB referenziate da un token opaco in un cookie httpOnly (`lib/auth.ts`/`lib/authGuard.ts`), non JWT (vedi §5 sul perché). Registrazione (`POST /auth/register`) protetta da un codice di invito condiviso (env var `SIGNUP_CODE`, da impostare su Vercel come `DATABASE_URL`), non aperta a chiunque. Hook `onRequest` globale (`registerAuthGuard`) protegge tutte le rotte tranne `/health`, `/auth/register`, `/auth/login`. UI: `LoginPage` (toggle accedi/registrati) mostrata al posto dell'app se non autenticati, nome utente + "Esci" in `Layout` |
 | Profilazione avversari (sez. 12) | 🚧 | Motore puro `apps/api/src/lib/opponents/computeOpponentProfiles.ts` (stesso pattern di Market/Evaluation Engine), ricalcolato ad ogni chiamata a `buildActiveAuctionState` e incluso in `ActiveAuctionState.opponents`. Un profilo per partecipante dai soli `AuctionEntry` già registrati: spesa media e budget residuo (reali), overpay index (prezzo/quotazione medio), concentrazione spesa (Herfindahl-Hirschman rinormalizzato, richiede ≥2 acquisti), preferenza "big" (`valueScore` medio dei giocatori presi), preferenza giovani (età media rispetto al range 18-38), squadra preferita (quota acquisti per squadra). "Aggressività" è una proxy dichiarata (frequenza di sovrapprezzo): il Live Auction Engine registra solo il prezzo finale di ogni inserimento, non i rilanci intermedi che la spec chiederebbe — nessuna aggressività "vera" calcolabile con questo modello dati. Ogni indice non calcolabile per mancanza di dati è `number \| null` (mai un finto 0), visibile in `/auction` come "n/d" nel pannello `OpponentsPanel` |
 | Market Engine (sez. 13) | 🚧 | Motore puro `apps/api/src/lib/market/computeMarketState.ts` (stesso pattern del Player Evaluation Engine: input già estratto dal DB, nessuna dipendenza Prisma/HTTP), ricalcolato ad ogni chiamata a `buildActiveAuctionState` (`routes/auction.ts`) e incluso in `ActiveAuctionState.market`, restituito da `GET /auctions/active` e da ogni mutazione. Calcola tutti e 6 i parametri della spec dai soli `AuctionEntry` già registrati: inflazione prezzi, svalutazione per ruolo, temperatura di mercato (euristica dichiarata su sovra/sotto-pagamento degli ultimi 5 inserimenti, non una probabilità calibrata), budget residuo totale, scarsità titolari per ruolo (frazione di titolari noti già venduti), rilancio medio. "Modifica le valutazioni" (spec) implementato in modo mirato: `EntryBar` in `/auction` mostra un "atteso a mercato" per il giocatore selezionato (quotazione ufficiale rettificata per l'inflazione del suo ruolo) accanto alla quotazione ufficiale, mai al posto di essa — nessun dato persistito viene sovrascritto (vedi §5) |
 | Decision Engine (sez. 14) | 🚧 | Motore puro `apps/api/src/lib/decision/computeDecisionRecommendation.ts`, esposto on-demand da `POST /auctions/:id/decision` (`{playerId, buyerId?, candidatePrice?}`), non pre-calcolato per ogni giocatore ad ogni poll dell'asta. Risponde solo a 2 delle 8 domande della spec — "qual è il prezzo massimo corretto?" e "conviene rilanciare [a questo prezzo]?" — combinando prezzo atteso (Player Evaluation Engine), rettifica di mercato per ruolo (Market Engine) e domanda concorrente reale (partecipanti con `rosterNeeded[ruolo] > 0`, unico proxy di concorrenza disponibile senza dati sui rilanci altrui, stesso limite di `OpponentProfile.aggressiveness`). Le altre 6 domande (miglior rapporto qualità/prezzo tra piu' giocatori, chi chiamare adesso, coppie, rischio rosa complessivo) richiedono di confrontare l'intero pool o l'intera rosa, non solo il giocatore corrente: non implementate, deliberatamente non inventate. UI: pulsante "Conviene rilanciare?" in `EntryBar` (`/auction`), mostra raccomandazione + prezzo massimo corretto + confidenza + tutti i fattori |
@@ -395,6 +396,29 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   davvero). Il pulsante di rimozione riga-per-riga in `ParticipantRosterCard` ora fa lo stesso
   soft-delete (non più un `DELETE` reale): cosi' "Annulla ultima azione" può ripristinare anche
   una rimozione fatta da lì, non solo dal pulsante undo dedicato.
+- **Autenticazione: sessioni DB con token opaco, non JWT**: richiesta esplicitamente dall'utente
+  ("più utenti, per ora una sola lega, in futuro magari più utenti e più leghe" — quindi login
+  multi-utente ma nessuna vera multi-tenancy per ora, tutti condividono la stessa `League`).
+  `@fastify/jwt@8` (l'ultima versione compatibile con Fastify 4, già in uso) dipende da una
+  versione di `fast-jwt` con multiple CVE note incluso un bypass di autenticazione — non
+  accettabile per la funzionalità che dovrebbe proteggere l'accesso. Scartato senza aggiungere
+  la dipendenza. Al suo posto: `Session` (riga DB con token opaco generato via
+  `crypto.randomBytes`, referenziata da un cookie httpOnly) — più semplice da revocare (basta
+  cancellare la riga, es. al logout) e senza rischio di algorithm confusion/validazione debole
+  tipici dei JWT. Password hash con `crypto.scrypt` (built-in Node, no `bcryptjs`): stesso
+  criterio, un pacchetto in meno da tenere aggiornato senza vantaggi reali a questa scala.
+  **Registrazione protetta da codice di invito condiviso** (env var `SIGNUP_CODE`, impostata
+  manualmente su Vercel come `DATABASE_URL`): la scelta dell'utente ("proteggere l'accesso") non
+  avrebbe senso se chiunque potesse registrarsi liberamente — niente inviti individuali o
+  approvazione admin, un solo codice condiviso, coerente con la scala "pochi utenti fidati" di
+  un'app personale. **Nessuno scoping dei dati per utente**: `League`/`Player`/`Auction`/ecc.
+  restano globali come prima (single-lega), l'autenticazione aggiunge solo "chi può entrare",
+  non "chi vede cosa" — un eventuale multi-lega vero (menzionato dall'utente come possibilità
+  futura) richiederebbe aggiungere `userId`/`leagueId` a ogni tabella, cambio molto più grande
+  non fatto qui. **Hook `onRequest` globale** (`registerAuthGuard`, registrato prima di ogni
+  altra rotta in `app.ts`) invece di un middleware per singola rotta: più semplice da verificare
+  che non manchi da nessuna parte, con un'allowlist esplicita (`/health`, `/auth/register`,
+  `/auth/login`) invece di dover ricordarsi di proteggere ogni nuova rotta manualmente.
 - **Import infortuni Transfermarkt: tentato e abbandonato, non un blocco risolvibile lato
   nostro codice**: richiesto esplicitamente dall'utente, non in spec. Prima versione: azione
   batch (`POST /import/injuries`) sui 20 giocatori con quotazione più alta — **0/20 trovati,
@@ -475,9 +499,14 @@ connettori (vedi il caso Fantacalcio.it sotto).
   di piattaforma Vercel quando deployato — sostituito con nome fisso `api/index.ts` +
   rewrite esplicito, molto più affidabile.
 - Env var richieste sul progetto Vercel: `DATABASE_URL` (connection string Neon *pooled*,
-  con `?pgbouncer=true&connection_limit=1`) e `DIRECT_URL` (connection string Neon
-  *non-pooled*, usata da `prisma migrate deploy` in fase di build). Non gestibili via tool:
-  vanno impostate manualmente da Vercel → Project Settings → Environment Variables.
+  con `?pgbouncer=true&connection_limit=1`), `DIRECT_URL` (connection string Neon
+  *non-pooled*, usata da `prisma migrate deploy` in fase di build) e `SIGNUP_CODE` (codice di
+  invito richiesto per `POST /auth/register`, sez. 5 "Autenticazione" — senza questa env var
+  la registrazione risponde sempre 503, per non lasciarla aperta per errore). Non gestibili via
+  tool: vanno impostate manualmente da Vercel → Project Settings → Environment Variables.
+  **`SIGNUP_CODE` non è ancora stata impostata da questa sessione**: finché resta assente, la
+  registrazione di nuovi account fallisce in produzione — va aggiunta manualmente prima di poter
+  creare il primo utente.
 - Progetto Neon `sedinho` isolato dagli altri progetti dell'account (`easydoc`, `Adapta`).
 
 **Verificato in produzione**: `GET /api/health`, CRUD `League` via Postgres reale, e tutti e 3 i

@@ -270,6 +270,37 @@ model AuctionEntry {
   @@index([buyerId])
 }
 
+// Autenticazione (richiesta esplicitamente dall'utente): più utenti possono avere un account,
+// ma condividono tutti gli stessi dati (una sola League, vedi CLAUDE.md sez. 5 "singola lega
+// attiva") — non e' multi-tenancy, e' solo per impedire che chiunque trovi l'URL possa vedere/
+// modificare la lega. Registrazione protetta da un codice di invito condiviso (env var
+// SIGNUP_CODE), non aperta a chiunque.
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  sessions Session[]
+}
+
+// Sessioni come righe DB referenziate da un token opaco nel cookie, non JWT: più semplice da
+// revocare (basta cancellare la riga, es. al logout) e non introduce una libreria JWT nelle
+// dipendenze (valutata e scartata: @fastify/jwt@8, l'ultima versione compatibile con Fastify 4
+// qui in uso, dipende da una versione di fast-jwt con multiple CVE note, incluso un bypass di
+// autenticazione — non accettabile per la funzionalità che sta proprio proteggendo l'accesso).
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([userId])
+}
+
 model OpponentProfile {
   id            String @id @default(cuid())
   participantId String @unique
