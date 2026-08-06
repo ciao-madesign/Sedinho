@@ -1,11 +1,12 @@
 import { useState } from "react";
-import type { ImportRunSummary, ImportSourceResult } from "@sedinho/shared";
+import type { ImportRunSummary, ImportSourceResult, InjuryImportSummary } from "@sedinho/shared";
 import { ApiError, importApi } from "../lib/api.js";
 
 const sourceLabels: Record<string, string> = {
   "fantacalcio-it": "Fantacalcio.it",
   fstats: "FSTATS",
   fantacalciopedia: "Fantacalciopedia",
+  transfermarkt: "Transfermarkt",
 };
 
 const statusStyles: Record<ImportSourceResult["status"], string> = {
@@ -27,6 +28,9 @@ export function ImportPanel() {
   const [running, setRunning] = useState(false);
   const [summary, setSummary] = useState<ImportRunSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [runningInjuries, setRunningInjuries] = useState(false);
+  const [injurySummary, setInjurySummary] = useState<InjuryImportSummary | null>(null);
+  const [injuryError, setInjuryError] = useState<string | null>(null);
 
   async function handleRun() {
     setRunning(true);
@@ -39,6 +43,20 @@ export function ImportPanel() {
       );
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function handleRunInjuries() {
+    setRunningInjuries(true);
+    setInjuryError(null);
+    try {
+      setInjurySummary(await importApi.runInjuries());
+    } catch (err) {
+      setInjuryError(
+        err instanceof ApiError ? err.message : "Errore imprevisto durante l'importazione infortuni.",
+      );
+    } finally {
+      setRunningInjuries(false);
     }
   }
 
@@ -102,6 +120,46 @@ export function ImportPanel() {
             </div>
           </li>
         </ul>
+      )}
+
+      <div className="mt-4 flex items-center justify-between gap-4 border-t border-slate-800 pt-4">
+        <div>
+          <h2 className="text-sm font-medium">Aggiorna infortuni (Transfermarkt)</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Azione separata, non in spec: importa lo storico infortuni solo per i giocatori con
+            quotazione più alta (una ricerca per giocatore, niente lista comoda come le altre
+            fonti). Selettori non ancora verificati dal vivo: primo giro da controllare qui sotto.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={runningInjuries}
+          onClick={handleRunInjuries}
+          className="whitespace-nowrap rounded border border-sky-500/40 px-3 py-2 text-sm font-medium text-sky-300 hover:bg-sky-500/10 disabled:opacity-40"
+        >
+          {runningInjuries ? "Importazione…" : "Aggiorna infortuni"}
+        </button>
+      </div>
+
+      {injuryError && <p className="mt-2 text-sm text-red-400">{injuryError}</p>}
+
+      {injurySummary && (
+        <div className="mt-3 rounded border border-slate-800 p-3 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="font-medium">Transfermarkt</span>
+            <span className="text-slate-400">
+              {injurySummary.matched}/{injurySummary.targeted} giocatori trovati ·{" "}
+              {injurySummary.seasonsUpdated} stagioni aggiornate
+            </span>
+          </div>
+          {injurySummary.errors.length > 0 && (
+            <ul className="mt-2 space-y-0.5 text-xs text-slate-500">
+              {injurySummary.errors.map((message, index) => (
+                <li key={index}>{message}</li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );

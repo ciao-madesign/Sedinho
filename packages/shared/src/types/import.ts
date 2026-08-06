@@ -2,7 +2,7 @@ import type { PlayerRole } from "./common.js";
 import type { HierarchyLevel, SetPieceType } from "./player.js";
 
 /** Identificatore di una fonte dati di import (sez. 5). Aggiungere qui ogni nuovo connettore. */
-export type ImportSourceId = "fantacalcio-it" | "fstats" | "fantacalciopedia";
+export type ImportSourceId = "fantacalcio-it" | "fstats" | "fantacalciopedia" | "transfermarkt";
 
 /** Statistiche di una stagione cosi' come riportate da una fonte, prima del merge nel DB. */
 export interface ImportedSeasonStats {
@@ -68,5 +68,20 @@ export interface ImportRunSummary {
   startedAt: string;
   finishedAt: string;
   results: ImportSourceResult[];
+  evaluation: EvaluationRunSummary;
+}
+
+/** Riepilogo di un'esecuzione dell'import infortuni da Transfermarkt (richiesto esplicitamente
+ * dall'utente, non in spec). Azione manuale separata da "Aggiorna Database": interroga
+ * Transfermarkt giocatore per giocatore (nessuna lista Serie A comoda come le altre fonti),
+ * quindi limitata a un sottoinsieme (i giocatori con quotazione più alta) per restare nei tempi
+ * di una function serverless. Vedi CLAUDE.md sez. 5 per i dettagli e i limiti noti. */
+export interface InjuryImportSummary {
+  startedAt: string;
+  finishedAt: string;
+  targeted: number;
+  matched: number;
+  seasonsUpdated: number;
+  errors: string[];
   evaluation: EvaluationRunSummary;
 }

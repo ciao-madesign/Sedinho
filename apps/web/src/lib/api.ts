@@ -3,6 +3,7 @@ import type {
   DecisionRecommendation,
   HierarchyLevel,
   ImportRunSummary,
+  InjuryImportSummary,
   LeagueConfig,
   LeagueDraft,
   Participant,
@@ -58,6 +59,7 @@ export const leaguesApi = {
 
 export const importApi = {
   run: () => api.post<ImportRunSummary>("/import/run", {}),
+  runInjuries: () => api.post<InjuryImportSummary>("/import/injuries", {}),
 };
 
 export interface PlayersFilter {
