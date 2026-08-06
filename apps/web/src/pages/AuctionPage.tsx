@@ -14,6 +14,7 @@ import type {
 import { ApiError, auctionApi, leaguesApi, participantsApi, playersApi } from "../lib/api.js";
 import { PlayerRoleBadge } from "../components/PlayerRoleBadge.js";
 import { ShortlistStarButton } from "../components/ShortlistStarButton.js";
+import { AiCommentaryPanel } from "../components/AiCommentaryPanel.js";
 import { useShortlist } from "../lib/useShortlist.js";
 import { formatCredits, roleLabels } from "../lib/playerFormat.js";
 
@@ -1096,6 +1097,8 @@ export function AuctionPage() {
           </div>
 
           <OpponentsPanel opponents={auction.opponents} participants={auction.participants} />
+
+          <AiCommentaryPanel auction={auction} players={players} />
 
           <p className="text-xs text-slate-500">
             La valutazione per-giocatore confronta il prezzo pagato con la sua quotazione
