@@ -5,6 +5,7 @@ const navItems = [
   { to: "/", label: "Dashboard" },
   { to: "/players", label: "Giocatori" },
   { to: "/shortlist", label: "Obiettivi" },
+  { to: "/confronti", label: "Confronti" },
   { to: "/auction", label: "Asta" },
   { to: "/setup", label: "Setup Lega" },
 ];

@@ -6,6 +6,7 @@ import { PlayersPage } from "./pages/PlayersPage.js";
 import { PlayerDetailPage } from "./pages/PlayerDetailPage.js";
 import { AuctionPage } from "./pages/AuctionPage.js";
 import { ShortlistPage } from "./pages/ShortlistPage.js";
+import { ComparePage } from "./pages/ComparePage.js";
 import { LoginPage } from "./pages/LoginPage.js";
 import { useAuth } from "./lib/AuthContext.js";
 
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/players" element={<PlayersPage />} />
         <Route path="/players/:id" element={<PlayerDetailPage />} />
         <Route path="/shortlist" element={<ShortlistPage />} />
+        <Route path="/confronti" element={<ComparePage />} />
         <Route path="/auction" element={<AuctionPage />} />
         <Route path="/setup" element={<SetupWizardPage />} />
       </Route>
