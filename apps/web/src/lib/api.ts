@@ -3,12 +3,12 @@ import type {
   DecisionRecommendation,
   HierarchyLevel,
   ImportRunSummary,
-  InjuryImportSummary,
   LeagueConfig,
   LeagueDraft,
   Participant,
   PlayerAvailability,
   PlayerEvaluation,
+  PlayerInjuryImportResult,
   PlayerListItem,
   PlayerRole,
   SetPieceType,
@@ -59,7 +59,6 @@ export const leaguesApi = {
 
 export const importApi = {
   run: () => api.post<ImportRunSummary>("/import/run", {}),
-  runInjuries: () => api.post<InjuryImportSummary>("/import/injuries", {}),
 };
 
 export interface PlayersFilter {
@@ -143,6 +142,10 @@ export const playersApi = {
   list: (filter: PlayersFilter = {}) =>
     api.get<PlayerListItem[]>(`/players${toQueryString({ ...filter })}`),
   get: (id: string) => api.get<PlayerDetail>(`/players/${id}`),
+  /** Import infortuni da Transfermarkt on-demand per un solo giocatore (vedi
+   * apps/api/src/import/transfermarktInjuries.ts): il tentativo batch ha fallito con HTTP 504
+   * su ogni richiesta in produzione, sostituito con questa azione più leggera. */
+  refreshInjuries: (id: string) => api.post<PlayerInjuryImportResult>(`/players/${id}/injuries`, {}),
 };
 
 export const participantsApi = {

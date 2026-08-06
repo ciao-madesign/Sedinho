@@ -71,17 +71,13 @@ export interface ImportRunSummary {
   evaluation: EvaluationRunSummary;
 }
 
-/** Riepilogo di un'esecuzione dell'import infortuni da Transfermarkt (richiesto esplicitamente
- * dall'utente, non in spec). Azione manuale separata da "Aggiorna Database": interroga
- * Transfermarkt giocatore per giocatore (nessuna lista Serie A comoda come le altre fonti),
- * quindi limitata a un sottoinsieme (i giocatori con quotazione più alta) per restare nei tempi
- * di una function serverless. Vedi CLAUDE.md sez. 5 per i dettagli e i limiti noti. */
-export interface InjuryImportSummary {
-  startedAt: string;
-  finishedAt: string;
-  targeted: number;
-  matched: number;
+/** Risultato di un'importazione infortuni da Transfermarkt per UN giocatore (richiesto
+ * esplicitamente dall'utente, non in spec), on-demand dal suo dettaglio — non un'azione batch:
+ * il primo tentativo su un sottoinsieme di 20 giocatori ha fallito con HTTP 504 su ogni
+ * richiesta, sostituito con un'azione a un giocatore alla volta. Vedi CLAUDE.md sez. 5. */
+export interface PlayerInjuryImportResult {
+  playerId: string;
+  matched: boolean;
   seasonsUpdated: number;
-  errors: string[];
-  evaluation: EvaluationRunSummary;
+  error: string | null;
 }

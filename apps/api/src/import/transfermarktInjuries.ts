@@ -1,41 +1,36 @@
 import * as cheerio from "cheerio";
-import type { InjuryImportSummary } from "@sedinho/shared";
+import type { PlayerInjuryImportResult } from "@sedinho/shared";
 import { prisma } from "../db/prisma.js";
-import { evaluateAllPlayers } from "../lib/evaluation/evaluateAllPlayers.js";
+import { evaluateSinglePlayer } from "../lib/evaluation/evaluateAllPlayers.js";
 
 /** Import infortuni da Transfermarkt, richiesto esplicitamente dall'utente (non in spec).
  *
- * Diverso da tutti gli altri connettori (import/connectors/*): quelli scaricano UNA pagina che
- * elenca molti giocatori; Transfermarkt non ha una lista Serie A comoda equivalente, servirebbe
- * una ricerca + una pagina infortuni PER GIOCATORE. Su ~760 giocatori sarebbero 1500+ richieste
- * sequenziali in una singola function serverless: rischio concreto di timeout. Per questo:
- * - limitato ai `TARGET_PLAYER_COUNT` giocatori con quotazione più alta (i più rilevanti per
- *   un giudizio d'asta, e i più probabili ad avere una pagina Transfermarkt riconoscibile);
- * - azione manuale SEPARATA da "Aggiorna Database" (POST /import/injuries, pulsante dedicato),
- *   non incorporata nel giro standard che gira su tutti i ~760 giocatori;
- * - scrive direttamente su `SeasonStats` usando il `Player.id` già noto dal nostro DB, senza
- *   passare dal matching per nome usato da `upsert.ts`: qui non stiamo cercando di IDENTIFICARE
- *   un giocatore a partire da un nome esterno ambiguo, stiamo arricchendo un giocatore che
- *   conosciamo già. Non implementa `ImportConnector` per questo motivo (quell'interfaccia
- *   presume l'identificazione via nome/squadra, qui non serve).
+ * **Prima versione (batch, top 20 per quotazione): 0/20 su HTTP 504 in produzione**, verificato
+ * dal vivo — ogni singola richiesta a transfermarkt.com falliva con 504, non un problema di
+ * selettori CSS. Sostituita su richiesta dell'utente con un'azione **on-demand, un giocatore
+ * alla volta** dal dettaglio giocatore: riduce il carico per chiamata (2 richieste invece di
+ * fino a 40) e permette di vedere subito se una singola richiesta passa o viene ancora bloccata,
+ * senza sprecare l'intero budget di tentativi su un blocco sistematico. Header più simili a un
+ * browser reale (`HEADERS` sotto) per aumentare (non garantire: un WAF può fingerprintare anche
+ * TLS/JS challenge, non risolvibili da un semplice `fetch()`) le probabilità di passare.
  *
- * **Selettori CSS mai verificati dal vivo in questa sessione** (stesso limite di rete di
- * sempre, sandbox senza accesso a transfermarkt.com): scritti sulla struttura storicamente
- * nota del sito (tabelle `table.items`), da confermare/correggere in produzione prima di
- * fidarsene, stesso percorso già seguito per FSTATS e Fantacalciopedia. Transfermarkt è inoltre
- * noto per protezioni anti-scraping più aggressive delle altre fonti già integrate: possibile
- * che le richieste vengano bloccate anche con selettori corretti — va verificato.
+ * Diverso dagli altri connettori (import/connectors/*): quelli scaricano UNA pagina con molti
+ * giocatori; qui invece si parte da un `Player.id` già noto (niente lista Serie A comoda su
+ * Transfermarkt), quindi si scrive direttamente su `SeasonStats` con quel id, bypassando il
+ * matching per nome di `upsert.ts` — non c'e' nulla da identificare, solo da arricchire. La
+ * ricerca per nome richiede comunque un match univoco per token (stesso principio "meglio
+ * saltare che sbagliare" di `findPlayerByFuzzyName`), altrimenti niente scrittura.
  */
-const TARGET_PLAYER_COUNT = 20;
 const SEASON_MATCHES = 38; // Serie A, 20 squadre, girone all'italiana: approssimazione dichiarata
 
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (compatible; Sedinho/0.1; strumento fantacalcio personale)",
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9,it;q=0.8",
+  Referer: "https://www.transfermarkt.com/",
 };
 
-/** Stesso criterio di `import/upsert.ts::normalizeNameTokens`, duplicato qui volutamente
- * (modulo indipendente, non fa matching verso il resto del DB — vedi commento sopra): minuscolo,
- * senza accenti, token troppo corti scartati. */
 function normalizeNameTokens(name: string): string[] {
   return name
     .normalize("NFD")
@@ -61,23 +56,20 @@ async function searchPlayer(name: string): Promise<SearchCandidate[]> {
   const $ = cheerio.load(await res.text());
   const candidates: SearchCandidate[] = [];
 
-  $("table.items tbody tr").each((_, row) => {
-    const link = $(row).find("td.hauptlink a").first();
-    const href = link.attr("href") ?? "";
+  $("a[href*='/profil/spieler/']").each((_, el) => {
+    const href = $(el).attr("href") ?? "";
     const match = href.match(/^\/([^/]+)\/profil\/spieler\/(\d+)/);
     if (!match) return;
     const [, slug, id] = match;
-    const candidateName = link.text().trim();
+    const candidateName = $(el).text().trim();
     if (slug && id && candidateName) candidates.push({ id, slug, name: candidateName });
   });
 
-  return candidates;
+  // Lo stesso giocatore compare spesso più volte nella pagina (thumbnail + nome, entrambi link):
+  // deduplicato per id.
+  return [...new Map(candidates.map((c) => [c.id, c])).values()];
 }
 
-/** Accetta solo un candidato il cui nome condivide almeno un token con quello cercato ED è
- * l'unico a farlo: stesso principio "meglio saltare che sbagliare" di `findPlayerByFuzzyName`
- * (import/upsert.ts) — nessuna verifica di squadra (i risultati di ricerca non la espongono in
- * modo affidabile), accettabile perché limitato ai giocatori più noti (quotazione più alta). */
 function resolveUniqueCandidate(playerName: string, candidates: SearchCandidate[]): SearchCandidate | null {
   const tokens = new Set(normalizeNameTokens(playerName));
   const matches = candidates.filter((c) => normalizeNameTokens(c.name).some((t) => tokens.has(t)));
@@ -118,65 +110,57 @@ async function fetchInjuryHistory(id: string, slug: string): Promise<InjurySeaso
   return [...bySeason.entries()].map(([season, gamesMissed]) => ({ season, gamesMissed }));
 }
 
-/** Esegue l'import infortuni per i `TARGET_PLAYER_COUNT` giocatori con quotazione più alta,
- * innescato solo da un'azione utente esplicita (POST /import/injuries), mai in automatico
- * (sez. 2, "Aggiornamento manuale"). Sequenziale, stesso motivo di
- * `upsertPlayerImportRecords`/`evaluateAllPlayers` (Neon pooled, connection_limit=1). */
-export async function runTransfermarktInjuries(): Promise<InjuryImportSummary> {
-  const startedAt = new Date();
-  const errors: string[] = [];
-  let matched = 0;
-  let seasonsUpdated = 0;
-
-  const players = await prisma.player.findMany({
-    where: { initialQuotation: { not: null } },
-    orderBy: { initialQuotation: "desc" },
-    take: TARGET_PLAYER_COUNT,
-  });
-
-  for (const player of players) {
-    try {
-      const candidates = await searchPlayer(player.name);
-      const resolved = resolveUniqueCandidate(player.name, candidates);
-      if (!resolved) {
-        errors.push(`"${player.name}": nessun match univoco su Transfermarkt, saltato.`);
-        continue;
-      }
-      matched += 1;
-
-      const seasonTotals = await fetchInjuryHistory(resolved.id, resolved.slug);
-      for (const { season, gamesMissed } of seasonTotals) {
-        const injuryAbsenceRate = Math.min(1, gamesMissed / SEASON_MATCHES);
-        await prisma.seasonStats.upsert({
-          where: {
-            playerId_season_competition: { playerId: player.id, season, competition: "Serie A" },
-          },
-          create: {
-            playerId: player.id,
-            season,
-            competition: "Serie A",
-            source: "transfermarkt",
-            reliability: 0.65,
-            injuryAbsenceRate,
-          },
-          update: { injuryAbsenceRate, source: "transfermarkt", reliability: 0.65 },
-        });
-        seasonsUpdated += 1;
-      }
-    } catch (err) {
-      errors.push(`"${player.name}": ${err instanceof Error ? err.message : String(err)}`);
-    }
+/** Importa lo storico infortuni per UN giocatore, innescato solo da un'azione utente esplicita
+ * sul suo dettaglio (sez. 2, "Aggiornamento manuale"). Ricalcola anche la sua `PlayerEvaluation`
+ * (non l'intero DB) cosi' l'indice `reliability.injuryRisk` è subito aggiornato in UI. */
+export async function importInjuriesForPlayer(playerId: string): Promise<PlayerInjuryImportResult> {
+  const player = await prisma.player.findUnique({ where: { id: playerId } });
+  if (!player) {
+    return { playerId, matched: false, seasonsUpdated: 0, error: "Giocatore non trovato." };
   }
 
-  const evaluation = await evaluateAllPlayers();
+  try {
+    const candidates = await searchPlayer(player.name);
+    const resolved = resolveUniqueCandidate(player.name, candidates);
+    if (!resolved) {
+      return {
+        playerId,
+        matched: false,
+        seasonsUpdated: 0,
+        error: "Nessun match univoco su Transfermarkt per questo nome.",
+      };
+    }
 
-  return {
-    startedAt: startedAt.toISOString(),
-    finishedAt: new Date().toISOString(),
-    targeted: players.length,
-    matched,
-    seasonsUpdated,
-    errors,
-    evaluation,
-  };
+    const seasonTotals = await fetchInjuryHistory(resolved.id, resolved.slug);
+    for (const { season, gamesMissed } of seasonTotals) {
+      const injuryAbsenceRate = Math.min(1, gamesMissed / SEASON_MATCHES);
+      await prisma.seasonStats.upsert({
+        where: {
+          playerId_season_competition: { playerId: player.id, season, competition: "Serie A" },
+        },
+        create: {
+          playerId: player.id,
+          season,
+          competition: "Serie A",
+          source: "transfermarkt",
+          reliability: 0.65,
+          injuryAbsenceRate,
+        },
+        update: { injuryAbsenceRate, source: "transfermarkt", reliability: 0.65 },
+      });
+    }
+
+    if (seasonTotals.length > 0) {
+      await evaluateSinglePlayer(playerId);
+    }
+
+    return { playerId, matched: true, seasonsUpdated: seasonTotals.length, error: null };
+  } catch (err) {
+    return {
+      playerId,
+      matched: false,
+      seasonsUpdated: 0,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }

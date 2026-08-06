@@ -84,7 +84,7 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 | Sistema di aggiornamento / scraping (sez. 5) | 🚧 | Pipeline completa: `POST /import/run` (pulsante "Aggiorna Database" in Dashboard) orchestra connettori modulari (`ImportConnector`) e fa upsert con source/reliability. **Tutti e 3 i connettori sono reali e verificati in produzione**: Fantacalcio.it/quotazioni (identità/quotazione/ruolo, unico autorizzato a creare nuovi `Player`), FSTATS (in realtà `fantacalcio.it/statistiche-serie-a/{stagione}`, ora **3 stagioni** — `2025-26`/`2024-25`/`2023-24`, storico fantamedia richiesto esplicitamente dall'utente, vedi §5), Fantacalciopedia (gerarchie "titolare" + rigoristi/tiratori punizioni). Vedi §5 decisioni per il matching fuzzy per nome e `canCreatePlayers`. Le due stagioni passate aggiunte a FSTATS **non sono state verificate dal vivo** in questa sessione (stesso limite di rete, vedi sotto): stessi selettori della stagione corrente, presunti stabili ma da confermare in produzione |
 | Transfer Engine (sez. 6) | ⬜ | Modello dati presente (`Transfer`), motore di calcolo impatto non implementato |
 | Rotation Engine (sez. 7) | ⬜ | Modello dati presente (`TeamRotationProfile`), coefficienti non calcolati |
-| Player Evaluation Engine (sez. 8) | 🚧 | Motore puro in `apps/api/src/lib/evaluation/` (un calcolatore per categoria + `evaluatePlayer` orchestratore, nessuna dipendenza da Prisma/HTTP), ricalcolato in automatico a fine `POST /import/run` (`evaluateAllPlayers`) e salvato come nuova riga `PlayerEvaluation` per giocatore. Indici `number \| null`: `null` = dato non disponibile, sempre spiegato in `explanation.factors`. Con tutti e 3 i connettori ora reali, `explanation.confidence` è significativamente più alta di prima (produzione/bonus/stabilità/affidabilità reali per i giocatori coperti da FSTATS/Fantacalciopedia); resta `null` solo dove nessuna fonte ha dati per quel giocatore/indice specifico. `reliability.injuryRisk` collegato a `SeasonStats.injuryAbsenceRate` (% partite saltate per infortunio, richiesto esplicitamente dall'utente): popolato per i 20 giocatori con quotazione più alta da `POST /import/injuries` (Transfermarkt, azione separata da "Aggiorna Database", vedi §4/§5 e sotto "Prossimi passi"), `null` per tutti gli altri finché non si estende la copertura |
+| Player Evaluation Engine (sez. 8) | 🚧 | Motore puro in `apps/api/src/lib/evaluation/` (un calcolatore per categoria + `evaluatePlayer` orchestratore, nessuna dipendenza da Prisma/HTTP), ricalcolato in automatico a fine `POST /import/run` (`evaluateAllPlayers`) e salvato come nuova riga `PlayerEvaluation` per giocatore. Indici `number \| null`: `null` = dato non disponibile, sempre spiegato in `explanation.factors`. Con tutti e 3 i connettori ora reali, `explanation.confidence` è significativamente più alta di prima (produzione/bonus/stabilità/affidabilità reali per i giocatori coperti da FSTATS/Fantacalciopedia); resta `null` solo dove nessuna fonte ha dati per quel giocatore/indice specifico. `reliability.injuryRisk` collegato a `SeasonStats.injuryAbsenceRate` (% partite saltate per infortunio, richiesto esplicitamente dall'utente): popolato on-demand da `POST /players/:id/injuries` (Transfermarkt, un giocatore alla volta, pulsante "Cerca infortuni" in `PlayerDetailPage`), `null` finché non lo si cerca esplicitamente per quel giocatore. Il primo tentativo era un batch sui 20 giocatori con quotazione più alta: fallito con HTTP 504 su ogni singola richiesta in produzione, sostituito con l'azione on-demand (vedi §5) |
 | Dashboard (sez. 9) | 🚧 | Header collegato alla League reale (nome, partecipanti, budget, rosa) con CTA a `/setup` se non configurata. Delle 9 sezioni spec, 4 collegate a dati reali (Migliori occasioni, Sopravvalutati, Titolari, Rigoristi/piazzati — vedi §5 sui limiti di "nuovi"); le altre 5 (cambi gerarchia, infortuni, trasferimenti, in crescita/in calo) restano placeholder onesti con la ragione esplicita (richiedono storico o motori non ancora costruiti), non dati finti. **Filtri implementati**: `DashboardFiltersBar` (`components/DashboardFilters.tsx`) — ruolo, squadra, fascia prezzo (quotazione), età, rischio (disponibilità), titolarità, tutti quelli richiesti dalla spec sez. 9 — filtra il pool di giocatori condiviso da tutte le sezioni prima che ognuna estragga la propria top-5 (vedi §5 sulla scelta di una barra unica invece di controlli per pannello) |
 | Sistema grafico (sez. 10) | ⬜ | Recharts installato, nessun grafico ancora implementato |
 | Live Auction Engine (sez. 11) | 🚧 | Nuovo modello `Participant` (chi sono i partecipanti, non solo il numero); `Auction`/`AuctionEntry` ora collegati con foreign key reali (a `League`/`Player`/`Participant`, prima erano stringhe libere). Rotte `apps/api/src/routes/auction.ts`: nomina partecipanti, avvia/termina asta, aggiungi/rimuovi un inserimento (giocatore+prezzo+acquirente, l'unico input richiesto dalla spec), reset di partecipanti/asta per fare prove, con validazione budget e "un giocatore non può essere venduto due volte nella stessa asta" (vincolo DB). Ogni inserimento ricalcola budget residuo e fabbisogno di ruolo per tutti i partecipanti (da zero, non incrementale — scala di un'asta personale). UI `/auction` a due colonne: pannello giocatori filtrabile per ruolo/nome con quelli già assegnati mostrati ingrigiti (badge acquirente + prezzo pagato), rosa di ogni partecipante visibile in tempo reale con prezzo reale per giocatore, valutazione sintetica dell'operazione (prezzo pagato vs quotazione ufficiale, unico riferimento disponibile oggi), pannello **Obiettivi** (shortlist, vedi riga sotto) e **Market Engine** sopra le rose, pulsante "Conviene rilanciare?" nell'`EntryBar` collegato al Decision Engine. **Non implementato**: "migliori opportunità" dipende da domande del Decision Engine non ancora coperte — omesso, non inventato |
@@ -377,31 +377,41 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   `buildActiveAuctionState`: calcolare una raccomandazione per ogni giocatore ad ogni poll
   dell'asta sarebbe sprecato, la domanda ha senso solo per il giocatore che si sta valutando in
   quel momento.
-- **Import infortuni Transfermarkt: azione manuale separata, non un `ImportConnector`,
-  limitata a un sottoinsieme**: richiesto esplicitamente dall'utente. Tre scelte diverse dagli
-  altri connettori, tutte per lo stesso motivo — Transfermarkt non ha una lista Serie A comoda
-  come le altre fonti, servirebbe una ricerca + una pagina infortuni PER GIOCATORE (~1500
-  richieste sequenziali su tutti i ~760 giocatori):
-  1. **Sottoinsieme**: solo i 20 giocatori con quotazione più alta (`TARGET_PLAYER_COUNT` in
-     `transfermarktInjuries.ts`), non tutti — per restare nei tempi di una function serverless.
-     Scelta dell'utente tra le opzioni proposte (sottoinsieme vs azione più lunga separata vs
-     dentro "Aggiorna Database" col rischio di timeout).
-  2. **Azione separata** (`POST /import/injuries`, pulsante dedicato in `ImportPanel`, non
-     incorporata in `POST /import/run`): stesso principio "Aggiornamento manuale" (sez. 2),
-     semplicemente un secondo pulsante invece di allungare quello esistente.
-  3. **Non implementa `ImportConnector`**: quell'interfaccia presume di dover IDENTIFICARE un
-     giocatore a partire da un nome/squadra esterno ambiguo (da cui il matching fuzzy in
-     `upsert.ts`). Qui il `Player.id` è già noto (si parte dalla nostra tabella `Player`,
-     ordinata per quotazione), quindi si scrive direttamente su `SeasonStats` con quel id — non
-     c'è nulla da "matchare", solo un nome da cercare su Transfermarkt per trovare la sua pagina
-     infortuni. La ricerca per nome usa comunque lo stesso principio "meglio saltare che
-     sbagliare" (richiede un match univoco per token di nome, altrimenti salta il giocatore) per
-     non scrivere infortuni del giocatore sbagliato.
-  **Selettori CSS mai verificati dal vivo** in questa sessione (stesso limite di rete di
-  sempre): scritti sulla struttura storicamente nota di Transfermarkt (`table.items`), da
-  confermare/correggere in produzione come già fatto per FSTATS/Fantacalciopedia. A differenza
-  di quelle due fonti, Transfermarkt è nota per protezioni anti-scraping più aggressive: non è
-  garantito che il primo giro funzioni anche con selettori corretti.
+- **Import infortuni Transfermarkt: dal batch (20 giocatori) all'on-demand (1 giocatore alla
+  volta), dopo un fallimento verificato dal vivo**: richiesto esplicitamente dall'utente, non in
+  spec. Prima versione: azione separata (`POST /import/injuries`) limitata ai 20 giocatori con
+  quotazione più alta, per restare nei tempi di una function serverless (Transfermarkt non ha
+  una lista Serie A comoda, servirebbe una ricerca + una pagina infortuni PER GIOCATORE).
+  **Testata in produzione dall'utente: 0/20 giocatori trovati, ogni singola richiesta a
+  transfermarkt.com falliva con HTTP 504** — non un problema di selettori CSS (quelli non si
+  erano nemmeno mai potuti verificare in questa sessione, stesso limite di rete di sempre), ma
+  un blocco/errore sistematico a livello di rete o WAF, confermato dal pattern "504 su tutte le
+  20 richieste" senza eccezioni. Su proposta dell'utente, sostituita con:
+  - **Azione on-demand per un solo giocatore** (`POST /players/:id/injuries`, pulsante "Cerca
+    infortuni" nel dettaglio giocatore, non più un pulsante in `ImportPanel`): 2 richieste
+    invece di fino a 40, permette di vedere subito se una singola richiesta passa senza
+    sprecare l'intero tentativo su un blocco sistematico.
+  - **Header più simili a un browser reale** (`User-Agent` Chrome desktop invece di uno
+    personalizzato, `Accept`/`Accept-Language`/`Referer`) nel tentativo di ridurre il rischio di
+    blocco — dichiaratamente non risolutivo: un WAF può fingerprintare anche TLS/JS challenge,
+    non superabili da un semplice `fetch()`. Se il blocco persiste anche a 1 richiesta alla
+    volta, la fonte va probabilmente considerata non praticabile con questo approccio (servirebbe
+    Playwright con fingerprint browser reale, o un proxy/API a pagamento — non fatto qui).
+  - **`evaluateSinglePlayer(playerId)`** nuovo in `evaluateAllPlayers.ts`: ricalcola la
+    `PlayerEvaluation` di un solo giocatore (query mirata sulle quotazioni del suo ruolo, non
+    l'intero DB) cosi' l'indice `reliability.injuryRisk` si aggiorna subito in UI dopo la
+    ricerca, senza il costo di `evaluateAllPlayers()` su ~760 giocatori per un solo dato
+    cambiato.
+  - **Non implementa `ImportConnector`** (motivo invariato dalla prima versione): il
+    `Player.id` è già noto (si parte dalla nostra tabella `Player`), quindi si scrive
+    direttamente su `SeasonStats` con quel id — non c'è nulla da "matchare" verso il DB, solo un
+    nome da cercare su Transfermarkt. La ricerca per nome richiede comunque un match univoco per
+    token (stesso principio "meglio saltare che sbagliare" di `findPlayerByFuzzyName`).
+  - **Rotta di debug temporanea** `GET /debug/transfermarkt` (`apps/api/src/routes/debug.ts`,
+    stessa tecnica già usata per FSTATS/Fantacalciopedia): restituisce status HTTP, eventuale
+    contenuto HTML, ed euristiche su blocchi anti-bot (`looksLikeChallenge`), per ispezionare
+    dal vivo cosa risponde davvero Transfermarkt senza dover ripetere un giro completo
+    dell'import. Da rimuovere una volta chiarito se/come la fonte è utilizzabile.
 
 ## 6. Convenzioni di sviluppo
 
@@ -536,17 +546,15 @@ e ha chiesto esplicitamente, come direzione per il resto del frontend:
     `PlayerDetailPage` mostra tutte le righe ordinate per stagione decrescente. Non verificato
     dal vivo per le 2 stagioni passate (vedi §5).
 13. ~~"% partite saltate per infortunio"~~ — plumbing completo (schema → `injuryRisk` →
-    `PlayerDetailPage`) e **ora una fonte reale collegata**: `apps/api/src/import/
-    transfermarktInjuries.ts` (azione separata, `POST /import/injuries`, pulsante dedicato in
-    `ImportPanel`, richiesta esplicitamente dall'utente). Limitata ai 20 giocatori con
-    quotazione più alta (Transfermarkt non ha una lista Serie A comoda, servirebbe una request
-    per giocatore — su ~760 rischierebbe il timeout di una function serverless). Scrive
-    direttamente su `SeasonStats` via `Player.id` già noto, bypassando il matching per nome di
-    `upsert.ts` (qui non serve identificare, solo arricchire un giocatore già in DB). **Selettori
-    mai verificati dal vivo** in questa sessione (stesso limite di rete di sempre): primo giro
-    da controllare in produzione come per FSTATS/Fantacalciopedia a suo tempo — Transfermarkt è
-    inoltre noto per protezioni anti-scraping più aggressive, possibile che vada rivista la
-    strategia (header, eventualmente Playwright invece di Cheerio) dopo il primo test reale.
+    `PlayerDetailPage`) e fonte Transfermarkt collegata: `apps/api/src/import/
+    transfermarktInjuries.ts`, ma **il primo tentativo (batch, 20 giocatori) è fallito in
+    produzione: 0/20 trovati, HTTP 504 su ogni richiesta**. Sostituito con
+    `importInjuriesForPlayer`, azione on-demand per un solo giocatore alla volta (`POST
+    /players/:id/injuries`, pulsante "Cerca infortuni" nel dettaglio giocatore) più header
+    browser-like, vedi §5. **Ancora da verificare se il blocco persiste anche a 1 richiesta**:
+    se sì, la fonte va probabilmente considerata non praticabile senza Playwright/proxy (non
+    fatto). Rotta di debug `GET /debug/transfermarkt` disponibile per ispezionare la risposta
+    reale (status HTTP, euristica anti-bot, snippet HTML) senza dover ripetere l'azione intera.
 14. ~~Decision Engine (sez. 14)~~ — fatto parzialmente: risponde a "prezzo massimo corretto" e
     "conviene rilanciare?" per un giocatore alla volta (`POST /auctions/:id/decision`, pulsante
     in `EntryBar`). Le altre 6 domande della spec restano ⬜ (richiedono di ragionare
