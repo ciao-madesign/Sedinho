@@ -552,7 +552,7 @@ Fantacalciopedia (gerarchie/rigoristi, questa sessione).
 
 ## 9. Direzione UX (richiesta esplicita dell'utente, agosto 2026)
 
-L'utente ha fornito il logo principale (`apps/web/public/logo.png`, usato in header e favicon)
+L'utente ha fornito il logo principale (`apps/web/public/logo.jpg`, usato in header e favicon)
 e ha chiesto esplicitamente, come direzione per il resto del frontend:
 
 - **Interfaccia semplice, pochi input, molto accattivante graficamente** — non un pannello
@@ -633,10 +633,11 @@ e ha chiesto esplicitamente, come direzione per il resto del frontend:
 17. ~~Commento AI live in asta~~ — fatto (non in spec, richiesto esplicitamente dall'utente):
     chiamata diretta browser→Anthropic con la chiave dell'utente, mai sul nostro server (vedi
     §5). **Non ancora testato dal vivo con una chiave reale** in questa sessione.
-18. Logo: l'utente ha chiesto di sostituire `apps/web/public/logo.png` con un file JPEG fornito
-    in chat, ma nessun file `.jpg`/`.jpeg` è mai arrivato in questa sessione (né come allegato
-    né altrove nel filesystem) — segnalato all'utente, in attesa che lo re-invii. Non toccare
-    `logo.png` finché non arriva il file reale.
+18. ~~Logo~~ — fatto: l'utente ha caricato `sedinho.jpg` direttamente su GitHub (branch `main`,
+    commit `79b89e8`, upload via interfaccia web — non un allegato in chat, che nella sessione
+    precedente non era arrivato in un percorso salvabile). Spostato in
+    `apps/web/public/logo.jpg` (rimosso il vecchio `logo.png`), riferimenti aggiornati in
+    `Layout.tsx`, `LoginPage.tsx` e `index.html` (favicon, `type="image/jpeg"`).
 19. L'utente ha offerto di fornire i dati delle scorse edizioni della propria lega (non Serie A
     in generale) per costruire profili giocatori/previsioni sui valori basati sullo storico
     reale della sua asta — nessun dato ancora ricevuto in questa sessione. Quando arriva: capire
@@ -647,7 +648,5 @@ e ha chiesto esplicitamente, come direzione per il resto del frontend:
     istogrammi, box plot, heatmap, distribuzioni, timeline; confronto giocatore vs media
     ruolo/squadra; confronto tra due squadre o due ruoli; andamento mercato vs previsioni;
     esportazione grafici — tutti richiesti dalla spec sez. 10, non ancora affrontati.
-21. Immagine logo: l'utente ha inviato un'immagine in chat ma non è arrivata come allegato
-    salvabile in questa sessione (vedi punto 18) — richiesto di re-inviarla come file allegato.
 22. Dati storici della lega personale dell'utente (per profili giocatori/previsioni sui valori,
     vedi punto 19): ancora nessun dato ricevuto.

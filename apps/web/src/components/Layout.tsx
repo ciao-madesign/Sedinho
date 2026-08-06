@@ -26,7 +26,7 @@ export function Layout() {
         <div className="mx-auto flex max-w-6xl items-center justify-between">
           <NavLink to="/" className="flex items-center gap-2.5">
             <img
-              src="/logo.png"
+              src="/logo.jpg"
               alt="Sedinho"
               className="h-9 w-9 rounded-full ring-1 ring-slate-700 object-cover"
             />

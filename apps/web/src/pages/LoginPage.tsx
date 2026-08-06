@@ -35,7 +35,7 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
       <div className="w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center gap-2">
-          <img src="/logo.png" alt="Sedinho" className="h-12 w-12 rounded-full ring-1 ring-slate-700" />
+          <img src="/logo.jpg" alt="Sedinho" className="h-12 w-12 rounded-full ring-1 ring-slate-700" />
           <h1 className="text-xl font-semibold">Sedinho</h1>
         </div>
 
