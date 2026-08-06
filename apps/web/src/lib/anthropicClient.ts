@@ -71,7 +71,7 @@ export async function generateCommentary(
     headers: headers(apiKey),
     body: JSON.stringify({
       model,
-      max_tokens: 600,
+      max_tokens: 350,
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
     }),
