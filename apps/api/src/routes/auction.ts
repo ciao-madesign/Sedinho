@@ -191,6 +191,42 @@ export async function auctionRoutes(app: FastifyInstance) {
     },
   );
 
+  // Tratti manuali sull'avversario (richiesto esplicitamente dall'utente, non in spec): niente
+  // storico delle scorse edizioni della lega disponibile, quindi l'utente fornisce la propria
+  // conoscenza diretta invece che il sistema la calcoli da zero (vedi CLAUDE.md sez. 5). Restano
+  // sempre `number | null`/`string | null`: nessun default fittizio, "non impostato" e' uno
+  // stato esplicito distinto da uno slider a 0.
+  app.patch<{
+    Params: { id: string };
+    Body: {
+      preferredTeam?: string | null;
+      bidTendency?: number | null;
+      spendingStyle?: number | null;
+      scoutingStyle?: number | null;
+    };
+  }>("/participants/:id", async (request, reply) => {
+    const participant = await prisma.participant.findUnique({ where: { id: request.params.id } });
+    if (!participant) return reply.code(404).send({ error: "Partecipante non trovato" });
+
+    const { preferredTeam, bidTendency, spendingStyle, scoutingStyle } = request.body;
+    for (const [key, value] of Object.entries({ bidTendency, spendingStyle, scoutingStyle })) {
+      if (value !== undefined && value !== null && (value < 0 || value > 1)) {
+        return reply.code(400).send({ error: `${key} deve essere tra 0 e 1.` });
+      }
+    }
+
+    const updated = await prisma.participant.update({
+      where: { id: participant.id },
+      data: {
+        ...(preferredTeam !== undefined && { preferredTeam }),
+        ...(bidTendency !== undefined && { bidTendency }),
+        ...(spendingStyle !== undefined && { spendingStyle }),
+        ...(scoutingStyle !== undefined && { scoutingStyle }),
+      },
+    });
+    return updated;
+  });
+
   app.get("/auctions/active", async (_request, reply) => {
     const league = await getSingleLeague();
     if (!league) return reply.code(404).send({ error: "Nessuna lega configurata" });

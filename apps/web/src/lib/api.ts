@@ -148,6 +148,15 @@ export const participantsApi = {
   list: () => api.get<Participant[]>("/participants"),
   create: (names: string[], meIndex?: number) =>
     api.post<Participant[]>("/participants", { names, meIndex }),
+  /** Tratti manuali sull'avversario (richiesto esplicitamente dall'utente, non in spec, vedi
+   * CLAUDE.md sez. 5): stima soggettiva dell'utente, separata dai campi calcolati di
+   * OpponentProfile. */
+  updateTraits: (
+    id: string,
+    traits: Partial<
+      Pick<Participant, "preferredTeam" | "bidTendency" | "spendingStyle" | "scoutingStyle">
+    >,
+  ) => api.patch<Participant>(`/participants/${id}`, traits),
 };
 
 export const auctionApi = {

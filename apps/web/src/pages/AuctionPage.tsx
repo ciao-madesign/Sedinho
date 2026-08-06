@@ -408,14 +408,17 @@ function ShortlistPanel({
   onSelect: (player: PlayerListItem) => void;
   onRemove: (entryId: string) => void;
 }) {
-  if (entries.length === 0) return null;
+  if (entries.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        Nessun obiettivo ancora. Clicca la stella accanto a un giocatore per aggiungerlo.
+      </p>
+    );
+  }
 
   return (
     <div className="rounded-lg border border-amber-500/20 bg-amber-500/[0.03] p-3">
-      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-amber-300">
-        ★ Obiettivi
-      </h2>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-col gap-2">
         {entries.map((entry) => {
           const sold = soldMap.get(entry.playerId);
           if (sold) {
@@ -828,6 +831,128 @@ function OpponentsPanel({
   );
 }
 
+function TraitSlider({
+  label,
+  lowLabel,
+  highLabel,
+  value,
+  onChange,
+  onCommit,
+}: {
+  label: string;
+  lowLabel: string;
+  highLabel: string;
+  value: number | null;
+  onChange: (value: number | null) => void;
+  onCommit: (value: number | null) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500">
+        <span>{label}</span>
+        <span className="tabular-nums text-slate-400">
+          {value !== null ? Math.round(value * 100) : "—"}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        value={value !== null ? Math.round(value * 100) : 50}
+        onChange={(e) => onChange(Number(e.target.value) / 100)}
+        onMouseUp={(e) => onCommit(Number(e.currentTarget.value) / 100)}
+        onTouchEnd={(e) => onCommit(Number(e.currentTarget.value) / 100)}
+        onKeyUp={(e) => onCommit(Number(e.currentTarget.value) / 100)}
+        className={`w-full accent-indigo-500 ${value === null ? "opacity-40" : ""}`}
+      />
+      <div className="flex justify-between text-[10px] text-slate-600">
+        <span>{lowLabel}</span>
+        <span>{highLabel}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Tratti impostati manualmente dall'utente su ogni avversario (richiesto esplicitamente,
+ * non in spec, vedi CLAUDE.md sez. 5): niente storico delle scorse edizioni della lega
+ * disponibile, quindi l'utente fornisce la propria conoscenza diretta invece che il sistema la
+ * calcoli da zero. Deliberatamente in un pannello SEPARATO da `OpponentsPanel` (colore/etichette
+ * diversi): uno è un dato osservato dagli inserimenti reali, l'altro una stima soggettiva
+ * dell'utente — "Spiegabile" richiede che restino distinguibili, mai fusi in un unico numero. */
+function OpponentTraitsPanel({
+  participants,
+  onUpdate,
+}: {
+  participants: Participant[];
+  onUpdate: (id: string, traits: Partial<Participant>) => void;
+}) {
+  const rivals = participants.filter((p) => !p.isMe);
+  if (rivals.length === 0) return null;
+
+  async function commit(id: string, traits: Partial<Participant>) {
+    onUpdate(id, traits);
+    try {
+      await participantsApi.updateTraits(id, traits);
+    } catch {
+      // Salvataggio best-effort: lo stato locale resta comunque coerente con l'ultima modifica
+      // dell'utente, un fallimento di rete non blocca l'asta live.
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/[0.03] p-4">
+      <h2 className="mb-1 font-medium text-indigo-200">Tratti avversari (impostati da te)</h2>
+      <p className="mb-3 text-[11px] text-slate-500">
+        Stima soggettiva tua, non calcolata dai dati dell'asta: niente storico delle scorse
+        edizioni della lega da cui derivarla automaticamente. Modificabile in qualsiasi momento,
+        anche durante l'asta live.
+      </p>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {rivals.map((p) => (
+          <div key={p.id} className="rounded-md border border-slate-800 bg-slate-950/40 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-sm font-medium">{p.name}</span>
+              <input
+                value={p.preferredTeam ?? ""}
+                onChange={(e) => onUpdate(p.id, { preferredTeam: e.target.value || null })}
+                onBlur={(e) => commit(p.id, { preferredTeam: e.target.value || null })}
+                placeholder="Squadra preferita"
+                className="w-28 rounded border border-slate-800 bg-slate-900 px-1.5 py-0.5 text-right text-xs placeholder:text-slate-600 focus:border-indigo-500 focus:outline-none"
+              />
+            </div>
+            <div className="space-y-2.5">
+              <TraitSlider
+                label="Tendenza al rilancio"
+                lowLabel="Cauto"
+                highLabel="Rilancia spesso"
+                value={p.bidTendency}
+                onChange={(v) => onUpdate(p.id, { bidTendency: v })}
+                onCommit={(v) => commit(p.id, { bidTendency: v })}
+              />
+              <TraitSlider
+                label="Stile di spesa"
+                lowLabel="Tirchio"
+                highLabel="Spendaccione"
+                value={p.spendingStyle}
+                onChange={(v) => onUpdate(p.id, { spendingStyle: v })}
+                onCommit={(v) => commit(p.id, { spendingStyle: v })}
+              />
+              <TraitSlider
+                label="Approccio"
+                lowLabel="Segue le quotazioni"
+                highLabel="Talent scout"
+                value={p.scoutingStyle}
+                onChange={(v) => onUpdate(p.id, { scoutingStyle: v })}
+                onCommit={(v) => commit(p.id, { scoutingStyle: v })}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function AuctionPage() {
   const [league, setLeague] = useState<LeagueConfig | null | undefined>(undefined);
   const [participants, setParticipants] = useState<Participant[] | undefined>(undefined);
@@ -843,6 +968,7 @@ export function AuctionPage() {
   } | null>(null);
   const [undoMessage, setUndoMessage] = useState<string | null>(null);
   const [undoLoading, setUndoLoading] = useState(false);
+  const [openDrawer, setOpenDrawer] = useState<"obiettivi" | "ai" | null>(null);
   const shortlist = useShortlist();
 
   useEffect(() => {
@@ -957,6 +1083,10 @@ export function AuctionPage() {
     setUndoMessage(null);
   }
 
+  function handleUpdateParticipantTraits(id: string, traits: Partial<Participant>) {
+    setParticipants((prev) => prev?.map((p) => (p.id === id ? { ...p, ...traits } : p)));
+  }
+
   async function handleReset() {
     if (
       !confirm(
@@ -1035,6 +1165,28 @@ export function AuctionPage() {
             <div className="flex shrink-0 items-center gap-2">
               <button
                 type="button"
+                onClick={() => setOpenDrawer(openDrawer === "obiettivi" ? null : "obiettivi")}
+                className={`whitespace-nowrap rounded border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  openDrawer === "obiettivi"
+                    ? "border-amber-500/50 bg-amber-500/10 text-amber-300"
+                    : "border-slate-700 text-slate-400 hover:border-amber-500/50 hover:text-amber-300"
+                }`}
+              >
+                ★ Obiettivi{(shortlist.entries?.length ?? 0) > 0 ? ` (${shortlist.entries!.length})` : ""}
+              </button>
+              <button
+                type="button"
+                onClick={() => setOpenDrawer(openDrawer === "ai" ? null : "ai")}
+                className={`whitespace-nowrap rounded border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  openDrawer === "ai"
+                    ? "border-violet-500/50 bg-violet-500/10 text-violet-300"
+                    : "border-slate-700 text-slate-400 hover:border-violet-500/50 hover:text-violet-300"
+                }`}
+              >
+                💬 Commento AI
+              </button>
+              <button
+                type="button"
                 onClick={handleUndo}
                 disabled={undoLoading}
                 title="Annulla l'ultimo inserimento o l'ultima rimozione in questa asta"
@@ -1051,14 +1203,6 @@ export function AuctionPage() {
               </button>
             </div>
           </div>
-
-          <ShortlistPanel
-            entries={shortlist.entries ?? []}
-            soldMap={soldMap}
-            selectedId={selectedPlayer?.id ?? null}
-            onSelect={setSelectedPlayer}
-            onRemove={shortlist.remove}
-          />
 
           <MarketPanel market={auction.market} />
 
@@ -1098,7 +1242,10 @@ export function AuctionPage() {
 
           <OpponentsPanel opponents={auction.opponents} participants={auction.participants} />
 
-          <AiCommentaryPanel auction={auction} players={players} />
+          <OpponentTraitsPanel
+            participants={participants ?? []}
+            onUpdate={handleUpdateParticipantTraits}
+          />
 
           <p className="text-xs text-slate-500">
             La valutazione per-giocatore confronta il prezzo pagato con la sua quotazione
@@ -1106,6 +1253,45 @@ export function AuctionPage() {
             (sez. 13). "Migliori opportunità" richiesto dalla spec dipende dal Decision Engine
             (sez. 14), non ancora implementato.
           </p>
+
+          {openDrawer && (
+            <div className="fixed inset-0 z-40 flex justify-end">
+              <button
+                type="button"
+                aria-label="Chiudi pannello"
+                onClick={() => setOpenDrawer(null)}
+                className="absolute inset-0 bg-slate-950/60 backdrop-blur-[1px]"
+              />
+              <div className="relative z-50 flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-slate-800 bg-slate-950 p-4 shadow-2xl">
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="font-medium">
+                    {openDrawer === "obiettivi" ? "★ Obiettivi" : "💬 Commento AI"}
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setOpenDrawer(null)}
+                    className="rounded px-2 py-1 text-slate-500 hover:bg-slate-900 hover:text-slate-300"
+                  >
+                    ✕
+                  </button>
+                </div>
+                {openDrawer === "obiettivi" ? (
+                  <ShortlistPanel
+                    entries={shortlist.entries ?? []}
+                    soldMap={soldMap}
+                    selectedId={selectedPlayer?.id ?? null}
+                    onSelect={(p) => {
+                      setSelectedPlayer(p);
+                      setOpenDrawer(null);
+                    }}
+                    onRemove={shortlist.remove}
+                  />
+                ) : (
+                  <AiCommentaryPanel auction={auction} players={players} />
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

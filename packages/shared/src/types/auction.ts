@@ -9,6 +9,14 @@ export interface Participant {
   name: string;
   /** Il fantallenatore che usa Sedinho, per distinguere "la mia rosa" nel report finale (sez. 16). */
   isMe: boolean;
+  /** Tratti impostati manualmente dall'utente (richiesto esplicitamente, non in spec): niente
+   * storico delle scorse edizioni disponibile, quindi l'utente fornisce la propria conoscenza
+   * diretta degli avversari. Deliberatamente separati da `OpponentProfile` (dati osservati dagli
+   * inserimenti reali dell'asta): uno è calcolato, l'altro è una stima soggettiva dell'utente. */
+  preferredTeam: string | null;
+  bidTendency: number | null; // 0..1
+  spendingStyle: number | null; // 0..1, 0 = tirchio, 1 = spendaccione
+  scoutingStyle: number | null; // 0..1, 0 = si affida alle valutazioni ufficiali, 1 = talent scout
 }
 
 /** Un singolo inserimento durante l'asta live (sez. 11, Live Auction Engine). */

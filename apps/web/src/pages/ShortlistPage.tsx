@@ -1,16 +1,62 @@
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import type { PlayerRole } from "@sedinho/shared";
 import { PlayerRoleBadge } from "../components/PlayerRoleBadge.js";
 import { ShortlistStarButton } from "../components/ShortlistStarButton.js";
 import { useShortlist } from "../lib/useShortlist.js";
 import { formatCredits, formatPercent, setPieceLabels } from "../lib/playerFormat.js";
 
+type SortKey = "name" | "quotation" | "value" | "starter";
+
+const roleFilters: (PlayerRole | "ALL")[] = ["ALL", "P", "D", "C", "A"];
+
+const sortOptions: { key: SortKey; label: string }[] = [
+  { key: "value", label: "Valore" },
+  { key: "quotation", label: "Quotazione" },
+  { key: "starter", label: "Prob. titolare" },
+  { key: "name", label: "Nome" },
+];
+
 /** Sezione "Obiettivi" (shortlist): i giocatori che l'utente vuole tenere d'occhio, con
  * valutazioni live (stessa fonte di PlayersPage/PlayerDetailPage, il Player Evaluation Engine
  * ricalcolato ad ogni "Aggiorna Database") e, se c'è un'asta attiva, lo stato di vendita in
  * tempo reale — richiesto esplicitamente dall'utente per essere visibile "anche durante
- * l'asta" (vedi anche il pannello equivalente in AuctionPage). */
+ * l'asta" (vedi anche il pannello equivalente in AuctionPage). Filtri/ordinamento (stesso
+ * pattern di PlayersPage, richiesti esplicitamente dall'utente): la shortlist tipicamente ha
+ * poche decine di righe, ma diventa comunque più leggibile da ordinare/filtrare a ridosso
+ * dell'asta. */
 export function ShortlistPage() {
   const shortlist = useShortlist();
+  const [role, setRole] = useState<PlayerRole | "ALL">("ALL");
+  const [team, setTeam] = useState("ALL");
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("value");
+
+  const teams = useMemo(() => {
+    if (!shortlist.entries) return [];
+    return Array.from(new Set(shortlist.entries.map((e) => e.player.team).filter(Boolean))).sort();
+  }, [shortlist.entries]);
+
+  const filtered = useMemo(() => {
+    if (!shortlist.entries) return [];
+    const query = search.trim().toLowerCase();
+    return shortlist.entries
+      .filter((e) => role === "ALL" || e.player.role === role)
+      .filter((e) => team === "ALL" || e.player.team === team)
+      .filter((e) => !query || e.player.name.toLowerCase().includes(query))
+      .sort((a, b) => {
+        switch (sortKey) {
+          case "quotation":
+            return (b.player.initialQuotation ?? -1) - (a.player.initialQuotation ?? -1);
+          case "value":
+            return (b.player.valueScore ?? -1) - (a.player.valueScore ?? -1);
+          case "starter":
+            return (b.player.starterProbability ?? -1) - (a.player.starterProbability ?? -1);
+          default:
+            return a.player.name.localeCompare(b.player.name);
+        }
+      });
+  }, [shortlist.entries, role, team, search, sortKey]);
 
   if (shortlist.entries === undefined) {
     return <p className="text-slate-400">Caricamento…</p>;
@@ -33,6 +79,58 @@ export function ShortlistPage() {
       {shortlist.entries.length === 0 ? (
         <p className="text-sm text-slate-500">Nessun obiettivo ancora. Vai su Giocatori e clicca la stella accanto a chi vuoi tenere d'occhio.</p>
       ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Cerca per nome…"
+              className="w-56 rounded-md border border-slate-800 bg-slate-900 px-3 py-1.5 text-sm placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
+            />
+            <div className="flex gap-1 rounded-md border border-slate-800 bg-slate-900 p-1">
+              {roleFilters.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setRole(r)}
+                  className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                    role === r
+                      ? "bg-emerald-500 text-slate-950"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {r === "ALL" ? "Tutti" : r}
+                </button>
+              ))}
+            </div>
+            <select
+              value={team}
+              onChange={(e) => setTeam(e.target.value)}
+              className="rounded-md border border-slate-800 bg-slate-900 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+            >
+              <option value="ALL">Tutte le squadre</option>
+              {teams.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              className="ml-auto rounded-md border border-slate-800 bg-slate-900 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+            >
+              {sortOptions.map((opt) => (
+                <option key={opt.key} value={opt.key}>
+                  Ordina per {opt.label.toLowerCase()}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {filtered.length === 0 ? (
+            <p className="text-sm text-slate-500">Nessun obiettivo corrisponde ai filtri.</p>
+          ) : (
         <div className="overflow-hidden rounded-lg border border-slate-800">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-900 text-xs uppercase tracking-wide text-slate-500">
@@ -47,7 +145,7 @@ export function ShortlistPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-900">
-              {shortlist.entries.map((entry) => (
+              {filtered.map((entry) => (
                 <tr key={entry.id} className="transition-colors hover:bg-slate-900/60">
                   <td className="px-4 py-2.5">
                     <ShortlistStarButton active onToggle={() => shortlist.remove(entry.id)} />
@@ -118,6 +216,8 @@ export function ShortlistPage() {
             </tbody>
           </table>
         </div>
+          )}
+        </>
       )}
     </div>
   );

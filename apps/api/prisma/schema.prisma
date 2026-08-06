@@ -49,6 +49,17 @@ model Participant {
   name     String
   isMe     Boolean @default(false)
 
+  // Tratti impostati manualmente dall'utente (richiesto esplicitamente, non in spec): niente
+  // storico delle scorse edizioni della lega disponibile, quindi l'utente fornisce la propria
+  // conoscenza diretta degli avversari invece che il sistema la calcoli da zero. Deliberatamente
+  // SEPARATI dai campi calcolati di OpponentProfile (sez. 12, in memoria, non persistiti) — mai
+  // fusi in un unico numero: uno è un dato osservato dagli inserimenti reali dell'asta, l'altro è
+  // una stima soggettiva dell'utente, "Spiegabile" richiede che restino distinguibili in UI.
+  preferredTeam String? // sigla squadra Serie A (es. "INT"), libera
+  bidTendency   Float? // 0..1: tendenza al rilancio secondo l'utente
+  spendingStyle Float? // 0..1: 0 = tirchio, 1 = spendaccione
+  scoutingStyle Float? // 0..1: 0 = si affida alle valutazioni ufficiali, 1 = talent scout
+
   createdAt DateTime @default(now())
 
   auctionEntries AuctionEntry[]
