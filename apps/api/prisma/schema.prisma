@@ -77,15 +77,27 @@ model Player {
   reliability Float    @default(1)
   createdAt   DateTime @default(now())
 
-  seasonStats    SeasonStats[]
-  hierarchies    PlayerHierarchy[]
-  setPieceRoles  SetPieceRole[]
-  transfers      Transfer[]
-  evaluations    PlayerEvaluation[]
-  auctionEntries AuctionEntry[]
+  seasonStats      SeasonStats[]
+  hierarchies      PlayerHierarchy[]
+  setPieceRoles    SetPieceRole[]
+  transfers        Transfer[]
+  evaluations      PlayerEvaluation[]
+  auctionEntries   AuctionEntry[]
+  shortlistEntry   ShortlistEntry?
 
   @@index([team])
   @@index([role])
+}
+
+// Obiettivi d'asta dell'utente (non della lega: Sedinho e' single-user, vedi CLAUDE.md sez. 5),
+// da tenere in vista durante l'asta live. Un solo entry per giocatore: @@unique(playerId) invece
+// di permettere doppioni, "aggiungere di nuovo" un giocatore gia' in shortlist non ha senso.
+model ShortlistEntry {
+  id        String   @id @default(cuid())
+  playerId  String   @unique
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  note      String?
+  createdAt DateTime @default(now())
 }
 
 model SeasonStats {
@@ -112,6 +124,9 @@ model SeasonStats {
   penaltiesTaken   Int   @default(0)
   cleanSheets      Int   @default(0)
   expectedBonus    Float @default(0)
+  // Frazione (0..1) di partite ufficiali saltate per infortunio in questa stagione, null se
+  // nessuna fonte la fornisce ancora (nessun connettore attivo la popola, vedi CLAUDE.md).
+  injuryAbsenceRate Float?
 
   source      String
   updatedAt   DateTime @updatedAt

@@ -49,6 +49,7 @@ export async function evaluateAllPlayers(): Promise<EvaluateAllPlayersSummary> {
         xA: s.xA,
         fantasyAvg: s.fantasyAvg,
         cleanSheets: s.cleanSheets,
+        injuryAbsenceRate: s.injuryAbsenceRate ?? null,
       })),
       hierarchy: bestHierarchy
         ? { level: bestHierarchy.level as HierarchyLevel, reliability: bestHierarchy.reliability }

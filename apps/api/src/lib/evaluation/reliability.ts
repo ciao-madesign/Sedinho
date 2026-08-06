@@ -29,6 +29,10 @@ const STARTER_WEIGHT: Record<HierarchyLevel, number> = {
 export function computeReliabilityIndices(
   hierarchy: HierarchyInput | undefined,
   rotation: RotationInput | undefined,
+  /** Frazione (0..1) di partite saltate per infortunio nell'ultima stagione con dato
+   * disponibile (sez. 4 "Storico infortuni"), `undefined`/`null` se nessuna fonte la fornisce
+   * ancora per questo giocatore. */
+  injuryAbsenceRate: number | null | undefined,
 ): IndexCalculation<ReliabilityIndices> {
   const factors: ExplanationFactor[] = [];
   let starterProbability: number | null = null;
@@ -72,15 +76,26 @@ export function computeReliabilityIndices(
     );
   }
 
-  factors.push(
-    missingDataFactor(
-      "Rischio infortuni",
-      "Dato non disponibile: nessuna fonte di storico infortuni ancora integrata.",
-    ),
-  );
+  let injuryRisk: number | null = null;
+  if (injuryAbsenceRate !== null && injuryAbsenceRate !== undefined) {
+    injuryRisk = Number(injuryAbsenceRate.toFixed(2));
+    factors.push({
+      label: "Storico infortuni",
+      direction: injuryRisk > 0.15 ? "unfavorable" : "neutral",
+      weight: 0.3,
+      detail: `${Math.round(injuryRisk * 100)}% delle partite ufficiali saltate per infortunio nell'ultima stagione con dato disponibile.`,
+    });
+  } else {
+    factors.push(
+      missingDataFactor(
+        "Rischio infortuni",
+        "Dato non disponibile: nessuna fonte di storico infortuni ancora integrata per questo giocatore.",
+      ),
+    );
+  }
 
   return {
-    indices: { starterProbability, reliabilityScore, injuryRisk: null, rotationRisk },
+    indices: { starterProbability, reliabilityScore, injuryRisk, rotationRisk },
     factors,
   };
 }

@@ -3,6 +3,7 @@ import { NavLink, Outlet } from "react-router-dom";
 const navItems = [
   { to: "/", label: "Dashboard" },
   { to: "/players", label: "Giocatori" },
+  { to: "/shortlist", label: "Obiettivi" },
   { to: "/auction", label: "Asta" },
   { to: "/setup", label: "Setup Lega" },
 ];

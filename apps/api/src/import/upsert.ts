@@ -18,6 +18,11 @@ interface UpsertOutcome {
   errors: string[];
 }
 
+// injuryAbsenceRate resta fuori da questo elenco: gli altri campi sono colonne non-nullable con
+// default 0 in schema.prisma (Int/Float @default(0)), quindi "nessun valore dalla fonte" e
+// "zero reale" sono la stessa cosa. injuryAbsenceRate e' Float? (nullable): 0 e' un valore reale
+// diverso da "dato non disponibile", va quindi trattato separatamente (vedi syncSeasonStats)
+// per non scrivere un finto 0 quando nessuna fonte fornisce lo storico infortuni.
 const SEASON_STATS_FIELDS = [
   "appearances",
   "minutes",
@@ -176,6 +181,7 @@ async function syncSeasonStats(
       const value = stats[field];
       if (value !== undefined) update[field] = value;
     }
+    if (stats.injuryAbsenceRate !== undefined) update.injuryAbsenceRate = stats.injuryAbsenceRate;
 
     await prisma.seasonStats.upsert({
       where: {
@@ -191,6 +197,7 @@ async function syncSeasonStats(
         competition: stats.competition,
         source: context.source,
         reliability: context.reliability,
+        injuryAbsenceRate: stats.injuryAbsenceRate ?? null,
         ...Object.fromEntries(SEASON_STATS_FIELDS.map((f) => [f, stats[f] ?? 0])),
       },
       update: { ...update, source: context.source, reliability: context.reliability },

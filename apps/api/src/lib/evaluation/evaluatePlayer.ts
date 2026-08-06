@@ -24,6 +24,7 @@ interface SeasonStatsInput {
   xA: number;
   fantasyAvg: number;
   cleanSheets: number;
+  injuryAbsenceRate: number | null;
 }
 
 export interface PlayerEvaluationInput {
@@ -54,9 +55,14 @@ function latestSeason<T extends { season: string }>(seasons: T[]): T | undefined
  * i valori (con `null` esplicito dove manca la fonte) sia i fattori che spiegano il risultato
  * (principio "Spiegabile"): qui vengono solo assemblati in un'unica `PlayerEvaluation`. */
 export function evaluatePlayer(input: PlayerEvaluationInput): PlayerEvaluationResult {
-  const reliability = computeReliabilityIndices(input.hierarchy, input.rotation);
-  const production = computeProductionIndices(latestSeason(input.seasons));
-  const bonus = computeBonusIndices(input.setPieces, latestSeason(input.seasons));
+  const mostRecentSeason = latestSeason(input.seasons);
+  const reliability = computeReliabilityIndices(
+    input.hierarchy,
+    input.rotation,
+    mostRecentSeason?.injuryAbsenceRate,
+  );
+  const production = computeProductionIndices(mostRecentSeason);
+  const bonus = computeBonusIndices(input.setPieces, mostRecentSeason);
   const stability = computeStabilityIndices(input.seasons);
   const value = computeValueIndices(input.initialQuotation, input.roleQuotations);
 

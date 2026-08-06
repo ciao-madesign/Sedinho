@@ -2,15 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   ActiveAuctionState,
   AuctionEntryView,
+  DecisionRecommendation,
   LeagueConfig,
   MarketState,
   OpponentProfile,
   Participant,
   PlayerListItem,
   PlayerRole,
+  ShortlistEntryView,
 } from "@sedinho/shared";
 import { ApiError, auctionApi, leaguesApi, participantsApi, playersApi } from "../lib/api.js";
 import { PlayerRoleBadge } from "../components/PlayerRoleBadge.js";
+import { ShortlistStarButton } from "../components/ShortlistStarButton.js";
+import { useShortlist } from "../lib/useShortlist.js";
 import { formatCredits, roleLabels } from "../lib/playerFormat.js";
 
 const ROLE_ORDER: PlayerRole[] = ["P", "D", "C", "A"];
@@ -242,11 +246,15 @@ function PlayersBrowserPanel({
   soldMap,
   selectedId,
   onSelect,
+  shortlistedIds,
+  onToggleShortlist,
 }: {
   players: PlayerListItem[];
   soldMap: Map<string, SoldInfo>;
   selectedId: string | null;
   onSelect: (player: PlayerListItem) => void;
+  shortlistedIds: Set<string>;
+  onToggleShortlist: (playerId: string) => void;
 }) {
   const [role, setRole] = useState<PlayerRole | "ALL">("ALL");
   const [team, setTeam] = useState("ALL");
@@ -330,12 +338,19 @@ function PlayersBrowserPanel({
       <div className="max-h-[65vh] overflow-y-auto lg:max-h-[calc(100vh-260px)]">
         {filtered.map((p) => {
           const sold = soldMap.get(p.id);
+          const star = (
+            <ShortlistStarButton
+              active={shortlistedIds.has(p.id)}
+              onToggle={() => onToggleShortlist(p.id)}
+            />
+          );
           if (sold) {
             return (
               <div
                 key={p.id}
                 className="flex items-center gap-2 border-b border-slate-800/60 px-3 py-2 text-sm opacity-40"
               >
+                {star}
                 <PlayerRoleBadge role={p.role} />
                 <span className="flex-1 truncate line-through decoration-slate-600">{p.name}</span>
                 <span className="whitespace-nowrap rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-400">
@@ -345,26 +360,122 @@ function PlayersBrowserPanel({
             );
           }
           return (
-            <button
+            <div
               key={p.id}
-              type="button"
-              onClick={() => onSelect(p)}
-              className={`flex w-full items-center gap-2 border-b border-slate-800/60 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-800 ${
+              className={`flex items-center gap-2 border-b border-slate-800/60 px-3 py-2 text-sm transition-colors hover:bg-slate-800 ${
                 selectedId === p.id ? "bg-emerald-500/10" : ""
               }`}
             >
-              <PlayerRoleBadge role={p.role} />
-              <span className="flex-1 truncate">{p.name}</span>
-              <span className="text-xs text-slate-500">{p.team}</span>
-              <span className="w-10 whitespace-nowrap text-right text-xs tabular-nums text-slate-400">
-                {browserMetric(p, sortKey)}
-              </span>
-            </button>
+              {star}
+              <button
+                type="button"
+                onClick={() => onSelect(p)}
+                className="flex flex-1 items-center gap-2 text-left"
+              >
+                <PlayerRoleBadge role={p.role} />
+                <span className="flex-1 truncate">{p.name}</span>
+                <span className="text-xs text-slate-500">{p.team}</span>
+                <span className="w-10 whitespace-nowrap text-right text-xs tabular-nums text-slate-400">
+                  {browserMetric(p, sortKey)}
+                </span>
+              </button>
+            </div>
           );
         })}
         {filtered.length === 0 && (
           <p className="p-4 text-center text-sm text-slate-600">Nessun giocatore trovato.</p>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** Sezione "Obiettivi" (shortlist) tenuta in vista durante l'asta live, richiesta
+ * esplicitamente dall'utente: mostra i giocatori marcati come obiettivo con lo stesso stato di
+ * vendita in tempo reale del pannello a sinistra (stesso `soldMap`, ricalcolato ad ogni
+ * inserimento), cliccabili per selezionarli nel form di assegnazione. */
+function ShortlistPanel({
+  entries,
+  soldMap,
+  selectedId,
+  onSelect,
+  onRemove,
+}: {
+  entries: ShortlistEntryView[];
+  soldMap: Map<string, SoldInfo>;
+  selectedId: string | null;
+  onSelect: (player: PlayerListItem) => void;
+  onRemove: (entryId: string) => void;
+}) {
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="rounded-lg border border-amber-500/20 bg-amber-500/[0.03] p-3">
+      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-amber-300">
+        ★ Obiettivi
+      </h2>
+      <div className="flex flex-wrap gap-2">
+        {entries.map((entry) => {
+          const sold = soldMap.get(entry.playerId);
+          if (sold) {
+            return (
+              <div
+                key={entry.id}
+                className="flex items-center gap-1.5 rounded-md border border-slate-800 bg-slate-900 px-2 py-1 text-xs opacity-40"
+              >
+                <PlayerRoleBadge role={entry.player.role} />
+                <span className="line-through decoration-slate-600">{entry.player.name}</span>
+                <span className="text-slate-500">
+                  {sold.buyerName} · {formatCredits(sold.price)}
+                </span>
+              </div>
+            );
+          }
+          return (
+            <div
+              key={entry.id}
+              className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
+                selectedId === entry.playerId
+                  ? "border-emerald-500/50 bg-emerald-500/10"
+                  : "border-slate-800 bg-slate-900"
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() =>
+                  onSelect({
+                    id: entry.player.id,
+                    name: entry.player.name,
+                    team: entry.player.team,
+                    role: entry.player.role,
+                    birthDate: entry.player.birthDate,
+                    availability: entry.player.availability,
+                    initialQuotation: entry.player.initialQuotation,
+                    valueScore: entry.player.valueScore,
+                    expectedAuctionPrice: entry.player.expectedAuctionPrice,
+                    starterProbability: entry.player.starterProbability,
+                    hierarchyLevel: entry.player.hierarchyLevel,
+                    setPieceTypes: entry.player.setPieceTypes,
+                    confidence: null,
+                  })
+                }
+                className="flex items-center gap-1.5"
+              >
+                <PlayerRoleBadge role={entry.player.role} />
+                <span>{entry.player.name}</span>
+                <span className="text-slate-500">{formatCredits(entry.player.initialQuotation)}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onRemove(entry.id)}
+                className="text-slate-700 hover:text-red-400"
+                title="Rimuovi dagli obiettivi"
+              >
+                ✕
+              </button>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -376,17 +487,28 @@ function EntryBar({
   market,
   onClear,
   onSubmit,
+  onAskDecision,
 }: {
   selectedPlayer: PlayerListItem | null;
   participants: ActiveAuctionState["participants"];
   market: MarketState;
   onClear: () => void;
   onSubmit: (price: number, buyerId: string) => Promise<void>;
+  onAskDecision: (
+    candidatePrice: number | undefined,
+    buyerId: string,
+  ) => Promise<DecisionRecommendation>;
 }) {
   const [price, setPrice] = useState("");
   const [buyerId, setBuyerId] = useState(participants[0]?.id ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [decision, setDecision] = useState<DecisionRecommendation | null>(null);
+  const [decisionLoading, setDecisionLoading] = useState(false);
+
+  useEffect(() => {
+    setDecision(null);
+  }, [selectedPlayer?.id]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -400,10 +522,25 @@ function EntryBar({
     try {
       await onSubmit(priceNumber, buyerId);
       setPrice("");
+      setDecision(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Errore imprevisto.");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleAskDecision() {
+    setDecisionLoading(true);
+    setError(null);
+    try {
+      const priceNumber = Number(price);
+      const candidatePrice = Number.isFinite(priceNumber) && priceNumber > 0 ? priceNumber : undefined;
+      setDecision(await onAskDecision(candidatePrice, buyerId));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Errore imprevisto.");
+    } finally {
+      setDecisionLoading(false);
     }
   }
 
@@ -482,6 +619,14 @@ function EntryBar({
         </select>
       </div>
       <button
+        type="button"
+        onClick={handleAskDecision}
+        disabled={decisionLoading}
+        className="rounded border border-sky-500/40 px-3 py-2 text-sm font-medium text-sky-300 hover:bg-sky-500/10 disabled:opacity-40"
+      >
+        {decisionLoading ? "…" : "Conviene rilanciare?"}
+      </button>
+      <button
         type="submit"
         disabled={submitting}
         className="rounded bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 disabled:opacity-40"
@@ -489,6 +634,23 @@ function EntryBar({
         {submitting ? "…" : "Assegna"}
       </button>
       {error && <p className="w-full text-sm text-red-400">{error}</p>}
+      {decision && (
+        <div className="w-full space-y-2 rounded-md border border-sky-500/20 bg-sky-500/5 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-medium text-sky-200">{decision.recommendation}</p>
+            <span className="whitespace-nowrap text-xs tabular-nums text-slate-500">
+              confidenza {Math.round(decision.confidence * 100)}%
+            </span>
+          </div>
+          <div className="space-y-1">
+            {decision.explanation.factors.map((factor, i) => (
+              <p key={i} className="text-xs text-slate-400">
+                <span className="font-medium text-slate-300">{factor.label}:</span> {factor.detail}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
     </form>
   );
 }
@@ -678,6 +840,7 @@ export function AuctionPage() {
     price: number;
     rating: ReturnType<typeof rateOperation>;
   } | null>(null);
+  const shortlist = useShortlist();
 
   useEffect(() => {
     leaguesApi
@@ -755,6 +918,14 @@ export function AuctionPage() {
       rating: rateOperation(price, selectedPlayer.initialQuotation),
     });
     setSelectedPlayer(null);
+  }
+
+  async function handleAskDecision(
+    candidatePrice: number | undefined,
+    buyerId: string,
+  ): Promise<DecisionRecommendation> {
+    if (!auction || !selectedPlayer) throw new Error("Nessun giocatore selezionato.");
+    return auctionApi.decide(auction.id, { playerId: selectedPlayer.id, buyerId, candidatePrice });
   }
 
   async function handleRemoveEntry(entryId: string) {
@@ -844,6 +1015,14 @@ export function AuctionPage() {
             </button>
           </div>
 
+          <ShortlistPanel
+            entries={shortlist.entries ?? []}
+            soldMap={soldMap}
+            selectedId={selectedPlayer?.id ?? null}
+            onSelect={setSelectedPlayer}
+            onRemove={shortlist.remove}
+          />
+
           <MarketPanel market={auction.market} />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[340px_1fr]">
@@ -852,6 +1031,8 @@ export function AuctionPage() {
               soldMap={soldMap}
               selectedId={selectedPlayer?.id ?? null}
               onSelect={setSelectedPlayer}
+              shortlistedIds={new Set(shortlist.entries?.map((e) => e.playerId) ?? [])}
+              onToggleShortlist={shortlist.toggle}
             />
 
             <div className="space-y-4">
@@ -861,6 +1042,7 @@ export function AuctionPage() {
                 market={auction.market}
                 onClear={() => setSelectedPlayer(null)}
                 onSubmit={handleAddEntry}
+                onAskDecision={handleAskDecision}
               />
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">

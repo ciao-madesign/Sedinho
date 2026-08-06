@@ -49,9 +49,10 @@ Sedinho/
 │   │       ├── index.ts      # entrypoint dev locale, chiama buildApp().listen()
 │   │       ├── db/prisma.ts  # client Prisma condiviso
 │   │       ├── lib/league-mapper.ts  # confine JSON-string <-> tipi condivisi (SQLite/Postgres via Prisma non hanno sempre Json comodo)
+│   │       ├── lib/evaluation/, lib/market/, lib/opponents/, lib/decision/  # motori puri (sez. 8/13/12/14), nessuna dipendenza Prisma/HTTP
 │   │       ├── import/       # pipeline "Aggiorna Database": types, upsert, runImport, connectors/
-│   │       │   └── connectors/   # fantacalcioIt (reale, verificato in produzione), fstats + fantacalciopedia (stub, vedi §5)
-│   │       └── routes/       # health, leagues (GET/POST/PUT), players, import (POST /import/run)
+│   │       │   └── connectors/   # fantacalcioIt, fstats (3 stagioni), fantacalciopedia — tutti reali, vedi §5
+│   │       └── routes/       # health, leagues, players, import, auction (asta/mercato/avversari/decisioni), shortlist
 │   └── web/                  # Frontend Vite + React
 │       └── src/
 │           ├── App.tsx       # routing
@@ -79,17 +80,18 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 | Tipi di dominio condivisi (`packages/shared`) | ✅ | League (+ EntryFee/PrizePool/CupFormat), Player, SeasonStats, Hierarchy, SetPieces, TeamRotation, Transfer, PlayerEvaluation, Auction/Market/Decision |
 | Schema DB (Prisma/SQLite) | ✅ | Rispecchia i tipi condivisi; 2 migrazioni applicate (`init`, `league-financials`) |
 | Setup Wizard (sez. 3) | ✅ | 4 step reali (Struttura, Economia, Regolamento, Riepilogo) in `SetupWizardPage` + `components/setup-wizard/*`, collegati a `POST`/`PUT /leagues`; precompilato (editabile) con il regolamento reale "Travedona Serie A"; regole (`ParsedRule[]`) inserite tramite form strutturato manuale, non parsing automatico (vedi §5) |
-| Database centrale giocatori (sez. 4) | ✅ | Schema pronto (incl. `initialQuotation`), API di lettura (`GET /players` con filtri ruolo/squadra/ricerca + riassunto valutazione, `GET /players/:id` con dettaglio completo); **popolato con dati reali** (~760 giocatori, cresce ad ogni "Aggiorna Database" con trasferimenti/nuovi arrivi) tramite i 3 connettori attivi in produzione; UI: `PlayersPage` (lista filtrabile/ordinabile) + `PlayerDetailPage` (spiegazione completa per categoria) |
-| Sistema di aggiornamento / scraping (sez. 5) | 🚧 | Pipeline completa: `POST /import/run` (pulsante "Aggiorna Database" in Dashboard) orchestra connettori modulari (`ImportConnector`) e fa upsert con source/reliability. **Tutti e 3 i connettori sono reali e verificati in produzione**: Fantacalcio.it/quotazioni (identità/quotazione/ruolo, unico autorizzato a creare nuovi `Player`), FSTATS (in realtà `fantacalcio.it/statistiche-serie-a/{stagione}`, statistiche stagione precedente), Fantacalciopedia (gerarchie "titolare" + rigoristi/tiratori punizioni). Vedi §5 decisioni per il matching fuzzy per nome e `canCreatePlayers` |
+| Database centrale giocatori (sez. 4) | ✅ | Schema pronto (incl. `initialQuotation`), API di lettura (`GET /players` con filtri ruolo/squadra/ricerca + riassunto valutazione, `GET /players/:id` con dettaglio completo); **popolato con dati reali** (~760 giocatori, cresce ad ogni "Aggiorna Database" con trasferimenti/nuovi arrivi) tramite i 3 connettori attivi in produzione; UI: `PlayersPage` (lista filtrabile/ordinabile) + `PlayerDetailPage` (spiegazione completa per categoria, incl. **storico fantamedia multi-stagione** — `SeasonStats` supportava già righe multiple per giocatore, serviva solo far scrivere più stagioni a FSTATS, vedi §5 — e colonna "% partite saltate per infortunio", `null` finché nessuna fonte la fornisce) |
+| Sistema di aggiornamento / scraping (sez. 5) | 🚧 | Pipeline completa: `POST /import/run` (pulsante "Aggiorna Database" in Dashboard) orchestra connettori modulari (`ImportConnector`) e fa upsert con source/reliability. **Tutti e 3 i connettori sono reali e verificati in produzione**: Fantacalcio.it/quotazioni (identità/quotazione/ruolo, unico autorizzato a creare nuovi `Player`), FSTATS (in realtà `fantacalcio.it/statistiche-serie-a/{stagione}`, ora **3 stagioni** — `2025-26`/`2024-25`/`2023-24`, storico fantamedia richiesto esplicitamente dall'utente, vedi §5), Fantacalciopedia (gerarchie "titolare" + rigoristi/tiratori punizioni). Vedi §5 decisioni per il matching fuzzy per nome e `canCreatePlayers`. Le due stagioni passate aggiunte a FSTATS **non sono state verificate dal vivo** in questa sessione (stesso limite di rete, vedi sotto): stessi selettori della stagione corrente, presunti stabili ma da confermare in produzione |
 | Transfer Engine (sez. 6) | ⬜ | Modello dati presente (`Transfer`), motore di calcolo impatto non implementato |
 | Rotation Engine (sez. 7) | ⬜ | Modello dati presente (`TeamRotationProfile`), coefficienti non calcolati |
-| Player Evaluation Engine (sez. 8) | 🚧 | Motore puro in `apps/api/src/lib/evaluation/` (un calcolatore per categoria + `evaluatePlayer` orchestratore, nessuna dipendenza da Prisma/HTTP), ricalcolato in automatico a fine `POST /import/run` (`evaluateAllPlayers`) e salvato come nuova riga `PlayerEvaluation` per giocatore. Indici `number \| null`: `null` = dato non disponibile, sempre spiegato in `explanation.factors`. Con tutti e 3 i connettori ora reali, `explanation.confidence` è significativamente più alta di prima (produzione/bonus/stabilità/affidabilità reali per i giocatori coperti da FSTATS/Fantacalciopedia); resta `null` solo dove nessuna fonte ha dati per quel giocatore/indice specifico |
+| Player Evaluation Engine (sez. 8) | 🚧 | Motore puro in `apps/api/src/lib/evaluation/` (un calcolatore per categoria + `evaluatePlayer` orchestratore, nessuna dipendenza da Prisma/HTTP), ricalcolato in automatico a fine `POST /import/run` (`evaluateAllPlayers`) e salvato come nuova riga `PlayerEvaluation` per giocatore. Indici `number \| null`: `null` = dato non disponibile, sempre spiegato in `explanation.factors`. Con tutti e 3 i connettori ora reali, `explanation.confidence` è significativamente più alta di prima (produzione/bonus/stabilità/affidabilità reali per i giocatori coperti da FSTATS/Fantacalciopedia); resta `null` solo dove nessuna fonte ha dati per quel giocatore/indice specifico. `reliability.injuryRisk` collegato a `SeasonStats.injuryAbsenceRate` (% partite saltate per infortunio, richiesto esplicitamente dall'utente): il campo esiste end-to-end (schema/tipi/motore/UI) ma resta `null` finché nessun connettore lo popola davvero — nessuna fonte attuale fornisce uno storico infortuni per giocatore (vedi §5) |
 | Dashboard (sez. 9) | 🚧 | Header collegato alla League reale (nome, partecipanti, budget, rosa) con CTA a `/setup` se non configurata. Delle 9 sezioni spec, 4 collegate a dati reali (Migliori occasioni, Sopravvalutati, Titolari, Rigoristi/piazzati — vedi §5 sui limiti di "nuovi"); le altre 5 (cambi gerarchia, infortuni, trasferimenti, in crescita/in calo) restano placeholder onesti con la ragione esplicita (richiedono storico o motori non ancora costruiti), non dati finti. **Filtri implementati**: `DashboardFiltersBar` (`components/DashboardFilters.tsx`) — ruolo, squadra, fascia prezzo (quotazione), età, rischio (disponibilità), titolarità, tutti quelli richiesti dalla spec sez. 9 — filtra il pool di giocatori condiviso da tutte le sezioni prima che ognuna estragga la propria top-5 (vedi §5 sulla scelta di una barra unica invece di controlli per pannello) |
 | Sistema grafico (sez. 10) | ⬜ | Recharts installato, nessun grafico ancora implementato |
-| Live Auction Engine (sez. 11) | 🚧 | Nuovo modello `Participant` (chi sono i partecipanti, non solo il numero); `Auction`/`AuctionEntry` ora collegati con foreign key reali (a `League`/`Player`/`Participant`, prima erano stringhe libere). Rotte `apps/api/src/routes/auction.ts`: nomina partecipanti, avvia/termina asta, aggiungi/rimuovi un inserimento (giocatore+prezzo+acquirente, l'unico input richiesto dalla spec), reset di partecipanti/asta per fare prove, con validazione budget e "un giocatore non può essere venduto due volte nella stessa asta" (vincolo DB). Ogni inserimento ricalcola budget residuo e fabbisogno di ruolo per tutti i partecipanti (da zero, non incrementale — scala di un'asta personale). UI `/auction` a due colonne: pannello giocatori filtrabile per ruolo/nome con quelli già assegnati mostrati ingrigiti (badge acquirente + prezzo pagato), rosa di ogni partecipante visibile in tempo reale con prezzo reale per giocatore, valutazione sintetica dell'operazione (prezzo pagato vs quotazione ufficiale, unico riferimento disponibile oggi), **pannello Market Engine** (vedi riga sotto) sopra le rose. **Non implementato**: "migliori opportunità" dipende dal Decision Engine (sez. 14, ⬜) — omesso, non inventato |
+| Live Auction Engine (sez. 11) | 🚧 | Nuovo modello `Participant` (chi sono i partecipanti, non solo il numero); `Auction`/`AuctionEntry` ora collegati con foreign key reali (a `League`/`Player`/`Participant`, prima erano stringhe libere). Rotte `apps/api/src/routes/auction.ts`: nomina partecipanti, avvia/termina asta, aggiungi/rimuovi un inserimento (giocatore+prezzo+acquirente, l'unico input richiesto dalla spec), reset di partecipanti/asta per fare prove, con validazione budget e "un giocatore non può essere venduto due volte nella stessa asta" (vincolo DB). Ogni inserimento ricalcola budget residuo e fabbisogno di ruolo per tutti i partecipanti (da zero, non incrementale — scala di un'asta personale). UI `/auction` a due colonne: pannello giocatori filtrabile per ruolo/nome con quelli già assegnati mostrati ingrigiti (badge acquirente + prezzo pagato), rosa di ogni partecipante visibile in tempo reale con prezzo reale per giocatore, valutazione sintetica dell'operazione (prezzo pagato vs quotazione ufficiale, unico riferimento disponibile oggi), pannello **Obiettivi** (shortlist, vedi riga sotto) e **Market Engine** sopra le rose, pulsante "Conviene rilanciare?" nell'`EntryBar` collegato al Decision Engine. **Non implementato**: "migliori opportunità" dipende da domande del Decision Engine non ancora coperte — omesso, non inventato |
+| Shortlist / Obiettivi d'asta (non in spec, richiesto esplicitamente dall'utente) | ✅ | Modello `ShortlistEntry` (`playerId` univoco, nota opzionale), single-user come tutto il resto dell'app (nessuno scoping per lega/partecipante, vedi §5). Rotte `apps/api/src/routes/shortlist.ts`: `GET/POST/PATCH/DELETE /shortlist`, arricchito con la valutazione più recente (stesso riassunto di `PlayerListItem`) e, se c'è un'asta attiva, con lo stato di vendita in tempo reale. UI: stella (`ShortlistStarButton`) per aggiungere/rimuovere da `PlayersPage`, `PlayerDetailPage` e dal pannello giocatori dell'asta; nuova pagina dedicata `/shortlist` (tab "Obiettivi" in nav) per la gestione fuori asta; pannello dedicato in `/auction` (sopra il Market Engine, quindi sempre visibile senza scroll) che mostra gli obiettivi con lo stesso stato di vendita live del pannello giocatori principale — richiesto esplicitamente dall'utente di essere "in vista anche durante l'asta" |
 | Profilazione avversari (sez. 12) | 🚧 | Motore puro `apps/api/src/lib/opponents/computeOpponentProfiles.ts` (stesso pattern di Market/Evaluation Engine), ricalcolato ad ogni chiamata a `buildActiveAuctionState` e incluso in `ActiveAuctionState.opponents`. Un profilo per partecipante dai soli `AuctionEntry` già registrati: spesa media e budget residuo (reali), overpay index (prezzo/quotazione medio), concentrazione spesa (Herfindahl-Hirschman rinormalizzato, richiede ≥2 acquisti), preferenza "big" (`valueScore` medio dei giocatori presi), preferenza giovani (età media rispetto al range 18-38), squadra preferita (quota acquisti per squadra). "Aggressività" è una proxy dichiarata (frequenza di sovrapprezzo): il Live Auction Engine registra solo il prezzo finale di ogni inserimento, non i rilanci intermedi che la spec chiederebbe — nessuna aggressività "vera" calcolabile con questo modello dati. Ogni indice non calcolabile per mancanza di dati è `number \| null` (mai un finto 0), visibile in `/auction` come "n/d" nel pannello `OpponentsPanel` |
 | Market Engine (sez. 13) | 🚧 | Motore puro `apps/api/src/lib/market/computeMarketState.ts` (stesso pattern del Player Evaluation Engine: input già estratto dal DB, nessuna dipendenza Prisma/HTTP), ricalcolato ad ogni chiamata a `buildActiveAuctionState` (`routes/auction.ts`) e incluso in `ActiveAuctionState.market`, restituito da `GET /auctions/active` e da ogni mutazione. Calcola tutti e 6 i parametri della spec dai soli `AuctionEntry` già registrati: inflazione prezzi, svalutazione per ruolo, temperatura di mercato (euristica dichiarata su sovra/sotto-pagamento degli ultimi 5 inserimenti, non una probabilità calibrata), budget residuo totale, scarsità titolari per ruolo (frazione di titolari noti già venduti), rilancio medio. "Modifica le valutazioni" (spec) implementato in modo mirato: `EntryBar` in `/auction` mostra un "atteso a mercato" per il giocatore selezionato (quotazione ufficiale rettificata per l'inflazione del suo ruolo) accanto alla quotazione ufficiale, mai al posto di essa — nessun dato persistito viene sovrascritto (vedi §5) |
-| Decision Engine (sez. 14) | ⬜ | Tipo `DecisionRecommendation` definito, nessuna logica |
+| Decision Engine (sez. 14) | 🚧 | Motore puro `apps/api/src/lib/decision/computeDecisionRecommendation.ts`, esposto on-demand da `POST /auctions/:id/decision` (`{playerId, buyerId?, candidatePrice?}`), non pre-calcolato per ogni giocatore ad ogni poll dell'asta. Risponde solo a 2 delle 8 domande della spec — "qual è il prezzo massimo corretto?" e "conviene rilanciare [a questo prezzo]?" — combinando prezzo atteso (Player Evaluation Engine), rettifica di mercato per ruolo (Market Engine) e domanda concorrente reale (partecipanti con `rosterNeeded[ruolo] > 0`, unico proxy di concorrenza disponibile senza dati sui rilanci altrui, stesso limite di `OpponentProfile.aggressiveness`). Le altre 6 domande (miglior rapporto qualità/prezzo tra piu' giocatori, chi chiamare adesso, coppie, rischio rosa complessivo) richiedono di confrontare l'intero pool o l'intera rosa, non solo il giocatore corrente: non implementate, deliberatamente non inventate. UI: pulsante "Conviene rilanciare?" in `EntryBar` (`/auction`), mostra raccomandazione + prezzo massimo corretto + confidenza + tutti i fattori |
 | Simulatore (sez. 15) | ⬜ | Non iniziato |
 | Report finale (sez. 16) | ⬜ | Non iniziato |
 
@@ -332,6 +334,49 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   `birthDate` noti sui giocatori acquistati. Il tipo originale (scritto in una sessione
   precedente, prima che il motore esistesse) li dichiarava `number` non nullable: corretto in
   questa sessione insieme all'implementazione, non lasciato inconsistente.
+- **Shortlist single-user, nessuno scoping per lega/partecipante**: come tutto il resto di
+  Sedinho (vedi sopra "singola lega attiva"), `ShortlistEntry` ha solo `playerId` (univoco,
+  niente doppioni) e una nota libera opzionale, senza `leagueId`. Stesso pattern di
+  `PlayerHierarchy`/`SetPieceRole`: relazione diretta a `Player`, cascade delete.
+- **Storico fantamedia: bastava far scrivere più stagioni al connettore FSTATS, non un nuovo
+  modello**: `SeasonStats` aveva già `@@unique([playerId, season, competition])` e
+  `syncSeasonStats` (import/upsert.ts) già faceva upsert per stagione — il gap era solo che
+  `fstatsConnector` interrogava un'unica `PREVIOUS_SEASON` hardcoded. Esteso a un elenco
+  `SEASONS` (`2025-26`/`2024-25`/`2023-24`, va aggiornato manualmente ad ogni fine stagione,
+  stesso spirito di `PREVIOUS_SEASON`) con una request per stagione, unite per `(name, team)` in
+  un solo `PlayerImportRecord` con più `seasonStats`. Una stagione con selettori non più validi
+  o pagina inesistente non blocca le altre (try/catch per stagione, non per l'intero
+  connettore). **Le stagioni 2024-25/2023-24 non sono state verificate dal vivo** in questa
+  sessione (stesso limite di rete di sempre, vedi sopra): stessa struttura pagina presunta
+  stabile, ma la prima verifica reale va fatta in produzione come per tutti i connettori.
+- **"% partite saltate per infortunio" collegata all'indice `injuryRisk` già esistente (mai
+  usato) invece di un campo grezzo isolato**: `ReliabilityIndices.injuryRisk` era `number | null`
+  fin dalla prima sessione ma sempre `null` con un commento "nessuna fonte ancora integrata" —
+  esattamente lo slot giusto. Aggiunto `SeasonStats.injuryAbsenceRate` (`Float?`, frazione 0..1),
+  propagato fino a `computeReliabilityIndices` (terzo parametro) usando la stagione più recente
+  disponibile per il giocatore. **Nessun connettore lo popola ancora**: fantacalciopedia.com non
+  ha un elenco storico infortuni per giocatore raggiungibile senza aprire 600+ pagine singole
+  (limite già documentato per le gerarchie, vedi sopra "non praticabile in una function
+  serverless") — inventare un URL/selettore da verificare mai dal vivo avrebbe rischiato lo
+  stesso tipo di incidente già capitato con `canCreatePlayers`. Meglio collegare tutta la
+  pipeline (schema → motore → UI, "% partite saltate per infortunio" in `PlayerDetailPage`) e
+  lasciarla onestamente vuota (`—` in UI) finché una fonte reale e verificabile non emerge,
+  piuttosto che inventare uno scraper probabilmente sbagliato. **Attenzione al default**: a
+  differenza degli altri campi di `SeasonStats` (colonne non-nullable con `@default(0)`, dove
+  "la fonte non lo manda" e "vale zero" coincidono), `injuryAbsenceRate` è nullable e 0 è un
+  valore reale diverso da "sconosciuto" — escluso apposta dal loop generico `?? 0` in
+  `syncSeasonStats` (import/upsert.ts) per non scrivere un finto 0.
+- **Decision Engine: solo le 2 domande della spec attivabili con i dati di un solo giocatore,
+  non tutte e 8**: "qual è il prezzo massimo corretto" e "conviene rilanciare a X" si rispondono
+  con `PlayerEvaluation` + `MarketState` + fabbisogno di ruolo dei rivali (proxy di domanda
+  concorrente reale, via `rosterNeeded`) per UN giocatore alla volta. Le altre 6 domande
+  ("miglior rapporto qualità/prezzo tra piu' giocatori", "chi chiamare adesso", "conviene
+  completare una coppia", "rischio introdotto nella rosa") richiedono di ragionare sull'intero
+  pool o sull'intera rosa contemporaneamente — un motore diverso, non costruito qui. Endpoint
+  on-demand (`POST /auctions/:id/decision`) invece che pre-calcolato dentro
+  `buildActiveAuctionState`: calcolare una raccomandazione per ogni giocatore ad ogni poll
+  dell'asta sarebbe sprecato, la domanda ha senso solo per il giocatore che si sta valutando in
+  quel momento.
 
 ## 6. Convenzioni di sviluppo
 
@@ -456,8 +501,23 @@ e ha chiesto esplicitamente, come direzione per il resto del frontend:
    `EntryBar`).
 10. ~~Profilazione avversari (sez. 12)~~ — fatto: `computeOpponentProfiles.ts`, incluso in
     `ActiveAuctionState.opponents` e visibile in `/auction` (`OpponentsPanel`, tabella sotto le
-    rose). Né Market Engine né Profilazione avversari sono ancora stati testati con dati reali
+    rose). Market Engine e Profilazione avversari non sono ancora stati testati con dati reali
     di un'asta vera (stesso limite del punto 7: creano dati reali per la lega dell'utente).
-    Prossimo passo naturale: sistema grafico (sez. 10) — ancora ⬜, Recharts installato ma nessun
-    grafico costruito — oppure Decision Engine (sez. 14), che userebbe Market Engine e
-    Profilazione avversari già pronti per rispondere a "conviene rilanciare?".
+11. ~~Shortlist/Obiettivi d'asta~~ — fatto (non in spec, richiesto esplicitamente dall'utente):
+    `ShortlistEntry`, rotte `/shortlist`, pagina dedicata `/shortlist`, stella in
+    `PlayersPage`/`PlayerDetailPage`/pannello giocatori asta, pannello dedicato in `/auction`
+    con stato di vendita live.
+12. ~~Storico fantamedia multi-stagione~~ — fatto: FSTATS ora importa 3 stagioni invece di 1,
+    `PlayerDetailPage` mostra tutte le righe ordinate per stagione decrescente. Non verificato
+    dal vivo per le 2 stagioni passate (vedi §5).
+13. ~~"% partite saltate per infortunio"~~ — plumbing completo (schema → `injuryRisk` →
+    `PlayerDetailPage`) ma **nessuna fonte lo popola ancora**: resta onestamente `null`/`—`
+    finché non emerge una fonte reale e verificabile (vedi §5, stesso limite già noto per gli
+    infortuni in Dashboard). Non un blocco per il resto: il campo è pronto a riempirsi da solo.
+14. ~~Decision Engine (sez. 14)~~ — fatto parzialmente: risponde a "prezzo massimo corretto" e
+    "conviene rilanciare?" per un giocatore alla volta (`POST /auctions/:id/decision`, pulsante
+    in `EntryBar`). Le altre 6 domande della spec restano ⬜ (richiedono di ragionare
+    sull'intero pool/rosa, non un giocatore alla volta — vedi §5). Prossimo passo naturale:
+    sistema grafico (sez. 10, ancora ⬜, Recharts installato ma nessun grafico costruito), oppure
+    estendere il Decision Engine alle domande "multi-giocatore" (richiede di iterare il pool
+    filtrato, fattibile riusando `computeDecisionRecommendation` per candidato).

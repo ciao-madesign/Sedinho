@@ -38,6 +38,9 @@ export interface SeasonStats {
   penaltiesTaken: number;
   cleanSheets: number;
   expectedBonus: number;
+  /** Frazione (0..1) delle partite ufficiali della squadra saltate per infortunio in questa
+   * stagione, `null` se non ancora disponibile da nessuna fonte (vedi import.ts). */
+  injuryAbsenceRate: number | null;
   meta: DataSourceMeta;
 }
 

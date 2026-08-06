@@ -24,6 +24,11 @@ export interface ImportedSeasonStats {
   penaltiesTaken?: number;
   cleanSheets?: number;
   expectedBonus?: number;
+  /** Frazione (0..1) delle partite ufficiali della squadra saltate dal giocatore per
+   * infortunio in questa stagione. Nessun connettore attivo la fornisce ancora (richiede
+   * storico infortuni per giocatore, non solo lo stato attuale): resta `undefined` finché una
+   * fonte reale non la popola, mai stimata da altri campi (vedi CLAUDE.md). */
+  injuryAbsenceRate?: number;
 }
 
 /** Un record giocatore cosi' come estratto da un connettore, prima del merge/upsert nel DB.

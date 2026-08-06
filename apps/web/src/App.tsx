@@ -5,6 +5,7 @@ import { SetupWizardPage } from "./pages/SetupWizardPage.js";
 import { PlayersPage } from "./pages/PlayersPage.js";
 import { PlayerDetailPage } from "./pages/PlayerDetailPage.js";
 import { AuctionPage } from "./pages/AuctionPage.js";
+import { ShortlistPage } from "./pages/ShortlistPage.js";
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/players" element={<PlayersPage />} />
         <Route path="/players/:id" element={<PlayerDetailPage />} />
+        <Route path="/shortlist" element={<ShortlistPage />} />
         <Route path="/auction" element={<AuctionPage />} />
         <Route path="/setup" element={<SetupWizardPage />} />
       </Route>

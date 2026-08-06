@@ -3,6 +3,8 @@ import { Link, useParams } from "react-router-dom";
 import type { ExplanationFactor } from "@sedinho/shared";
 import { playersApi, type PlayerDetail } from "../lib/api.js";
 import { PlayerRoleBadge } from "../components/PlayerRoleBadge.js";
+import { ShortlistStarButton } from "../components/ShortlistStarButton.js";
+import { useShortlist } from "../lib/useShortlist.js";
 import {
   availabilityLabels,
   formatCredits,
@@ -36,6 +38,7 @@ function IndexGrid({ indices }: { indices: Record<string, number | null> }) {
 export function PlayerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [player, setPlayer] = useState<PlayerDetail | null | undefined>(undefined);
+  const shortlist = useShortlist();
 
   useEffect(() => {
     if (!id) return;
@@ -71,7 +74,13 @@ export function PlayerDetailPage() {
       <div className="flex flex-wrap items-center gap-4">
         <PlayerRoleBadge role={player.role} />
         <div>
-          <h1 className="text-2xl font-semibold">{player.name}</h1>
+          <h1 className="flex items-center gap-2 text-2xl font-semibold">
+            {player.name}
+            <ShortlistStarButton
+              active={shortlist.entryByPlayerId.has(player.id)}
+              onToggle={() => shortlist.toggle(player.id)}
+            />
+          </h1>
           <p className="text-sm text-slate-400">
             {roleLabels[player.role]} · {player.team || "squadra sconosciuta"} ·{" "}
             {availabilityLabels[player.availability]}
@@ -213,7 +222,7 @@ export function PlayerDetailPage() {
 
       {player.seasonStats.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-lg font-medium">Statistiche stagionali</h2>
+          <h2 className="text-lg font-medium">Storico fantamedia</h2>
           <div className="overflow-x-auto rounded-lg border border-slate-800">
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-900 text-xs uppercase tracking-wide text-slate-500">
@@ -224,28 +233,41 @@ export function PlayerDetailPage() {
                   <th className="px-3 py-2 font-medium text-right">Fantamedia</th>
                   <th className="px-3 py-2 font-medium text-right">Gol</th>
                   <th className="px-3 py-2 font-medium text-right">Assist</th>
+                  <th className="px-3 py-2 font-medium text-right">% partite saltate per infortunio</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-900">
-                {player.seasonStats.map((s) => (
-                  <tr key={s.id}>
-                    <td className="px-3 py-2">
-                      {s.season} · {s.competition}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{s.appearances}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {s.averageRating.toFixed(2)}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {s.fantasyAvg.toFixed(2)}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{s.goals}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{s.assists}</td>
-                  </tr>
-                ))}
+                {[...player.seasonStats]
+                  .sort((a, b) => b.season.localeCompare(a.season))
+                  .map((s) => (
+                    <tr key={s.id}>
+                      <td className="px-3 py-2">
+                        {s.season} · {s.competition}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">{s.appearances}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {s.averageRating.toFixed(2)}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {s.fantasyAvg.toFixed(2)}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">{s.goals}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{s.assists}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate-400">
+                        {s.injuryAbsenceRate !== null
+                          ? `${Math.round(s.injuryAbsenceRate * 100)}%`
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>
+          <p className="text-xs text-slate-500">
+            Storico multi-stagione (finché disponibile dalla fonte). "% partite saltate per
+            infortunio" richiede uno storico infortuni per giocatore non ancora collegato da
+            nessuna fonte: resta "—" finché non lo sarà, mai una stima.
+          </p>
         </section>
       )}
     </div>

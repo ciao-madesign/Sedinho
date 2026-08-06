@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import type { PlayerListItem, PlayerRole } from "@sedinho/shared";
 import { playersApi } from "../lib/api.js";
 import { PlayerRoleBadge } from "../components/PlayerRoleBadge.js";
+import { ShortlistStarButton } from "../components/ShortlistStarButton.js";
+import { useShortlist } from "../lib/useShortlist.js";
 import { formatCredits, formatPercent, roleLabels } from "../lib/playerFormat.js";
 
 type SortKey = "name" | "quotation" | "value" | "starter";
@@ -23,6 +25,7 @@ export function PlayersPage() {
   const [team, setTeam] = useState<string>("ALL");
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("value");
+  const shortlist = useShortlist();
 
   useEffect(() => {
     playersApi
@@ -124,6 +127,7 @@ export function PlayersPage() {
             <table className="w-full text-left text-sm">
               <thead className="sticky top-0 bg-slate-900 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
+                  <th className="w-8 px-4 py-2.5 font-medium"></th>
                   <th className="px-4 py-2.5 font-medium">Giocatore</th>
                   <th className="px-4 py-2.5 font-medium">Squadra</th>
                   <th className="px-4 py-2.5 font-medium text-right">Quotazione</th>
@@ -135,6 +139,12 @@ export function PlayersPage() {
               <tbody className="divide-y divide-slate-900">
                 {filtered.map((player) => (
                   <tr key={player.id} className="transition-colors hover:bg-slate-900/60">
+                    <td className="px-4 py-2.5">
+                      <ShortlistStarButton
+                        active={shortlist.entryByPlayerId.has(player.id)}
+                        onToggle={() => shortlist.toggle(player.id)}
+                      />
+                    </td>
                     <td className="px-4 py-2.5">
                       <Link
                         to={`/players/${player.id}`}

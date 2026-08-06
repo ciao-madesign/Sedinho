@@ -5,6 +5,7 @@ import { toLeagueConfig } from "../lib/league-mapper.js";
 import { toPlayerEvaluation } from "../lib/evaluation-mapper.js";
 import { computeMarketState } from "../lib/market/computeMarketState.js";
 import { computeOpponentProfiles } from "../lib/opponents/computeOpponentProfiles.js";
+import { computeDecisionRecommendation } from "../lib/decision/computeDecisionRecommendation.js";
 
 const ROLES: PlayerRole[] = ["P", "D", "C", "A"];
 
@@ -295,4 +296,59 @@ export async function auctionRoutes(app: FastifyInstance) {
       return buildActiveAuctionState(request.params.id);
     },
   );
+
+  // Decision Engine (sez. 14): risponde on-demand per un candidato specifico (giocatore +
+  // eventuale prezzo proposto), non pre-calcolato per tutti i giocatori ad ogni poll
+  // dell'asta — non avrebbe senso calcolare una raccomandazione per centinaia di giocatori
+  // ogni volta che lo stato dell'asta viene ricaricato.
+  app.post<{
+    Params: { id: string };
+    Body: { playerId: string; buyerId?: string; candidatePrice?: number };
+  }>("/auctions/:id/decision", async (request, reply) => {
+    const auction = await prisma.auction.findUnique({ where: { id: request.params.id } });
+    if (!auction) return reply.code(404).send({ error: "Asta non trovata" });
+
+    const { playerId, buyerId, candidatePrice } = request.body;
+    const player = await prisma.player.findUnique({ where: { id: playerId } });
+    if (!player) return reply.code(400).send({ error: "Giocatore non trovato" });
+
+    const [state, latestEvaluationRow] = await Promise.all([
+      buildActiveAuctionState(auction.id),
+      prisma.playerEvaluation.findFirst({
+        where: { playerId },
+        orderBy: { computedAt: "desc" },
+      }),
+    ]);
+
+    const role = player.role as PlayerRole;
+    const buyerSummary = buyerId ? state.participants.find((p) => p.id === buyerId) : undefined;
+    const rivalsInNeed = state.participants.filter(
+      (p) => p.id !== buyerId && p.rosterNeeded[role] > 0,
+    ).length;
+
+    const latestEvaluation = latestEvaluationRow ? toPlayerEvaluation(latestEvaluationRow) : null;
+
+    const recommendation = computeDecisionRecommendation({
+      player: { id: player.id, name: player.name, role, initialQuotation: player.initialQuotation },
+      evaluation: latestEvaluation
+        ? {
+            expectedAuctionPrice: latestEvaluation.value.expectedAuctionPrice,
+            valueScore: latestEvaluation.value.valueScore,
+            confidence: latestEvaluation.explanation.confidence,
+          }
+        : null,
+      market: {
+        priceInflation: state.market.priceInflation,
+        roleDeflation: state.market.roleDeflation[role] ?? null,
+        marketTemperature: state.market.marketTemperature,
+      },
+      rivalsInNeed,
+      buyer: buyerSummary
+        ? { remainingBudget: buyerSummary.budgetRemaining, rosterNeeded: buyerSummary.rosterNeeded[role] }
+        : null,
+      candidatePrice: candidatePrice ?? null,
+    });
+
+    return recommendation;
+  });
 }

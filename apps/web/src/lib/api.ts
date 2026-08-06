@@ -1,5 +1,6 @@
 import type {
   ActiveAuctionState,
+  DecisionRecommendation,
   HierarchyLevel,
   ImportRunSummary,
   LeagueConfig,
@@ -10,6 +11,7 @@ import type {
   PlayerListItem,
   PlayerRole,
   SetPieceType,
+  ShortlistEntryView,
 } from "@sedinho/shared";
 
 const API_BASE = "/api";
@@ -42,6 +44,8 @@ export const api = {
     request<T>(path, { method: "POST", body: JSON.stringify(body) }),
   put: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
+  patch: <T>(path: string, body: unknown) =>
+    request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };
 
@@ -86,6 +90,7 @@ export interface PlayerSeasonStatsRow {
   penaltiesTaken: number;
   cleanSheets: number;
   expectedBonus: number;
+  injuryAbsenceRate: number | null;
   source: string;
   reliability: number;
 }
@@ -155,4 +160,17 @@ export const auctionApi = {
   /** Cancella partecipanti + aste (con relative assegnazioni) della lega: per fare prove
    * prima dell'asta vera senza doversi portare dietro dati di test. */
   reset: () => api.post<{ reset: true }>("/auctions/reset", {}),
+  decide: (
+    auctionId: string,
+    body: { playerId: string; buyerId?: string; candidatePrice?: number },
+  ) => api.post<DecisionRecommendation>(`/auctions/${auctionId}/decision`, body),
+};
+
+export const shortlistApi = {
+  list: () => api.get<ShortlistEntryView[]>("/shortlist"),
+  add: (playerId: string, note?: string) =>
+    api.post<{ id: string }>("/shortlist", { playerId, note }),
+  updateNote: (id: string, note: string) =>
+    api.patch<{ id: string }>(`/shortlist/${id}`, { note }),
+  remove: (id: string) => api.delete<{ removed: true }>(`/shortlist/${id}`),
 };
