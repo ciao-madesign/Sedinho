@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import type { ExplanationFactor, PlayerInjuryImportResult } from "@sedinho/shared";
-import { ApiError, playersApi, type PlayerDetail } from "../lib/api.js";
+import type { ExplanationFactor } from "@sedinho/shared";
+import { playersApi, type PlayerDetail } from "../lib/api.js";
 import { PlayerRoleBadge } from "../components/PlayerRoleBadge.js";
 import { ShortlistStarButton } from "../components/ShortlistStarButton.js";
 import { useShortlist } from "../lib/useShortlist.js";
@@ -39,30 +39,6 @@ export function PlayerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [player, setPlayer] = useState<PlayerDetail | null | undefined>(undefined);
   const shortlist = useShortlist();
-  const [injuryLoading, setInjuryLoading] = useState(false);
-  const [injuryResult, setInjuryResult] = useState<PlayerInjuryImportResult | null>(null);
-
-  async function handleRefreshInjuries() {
-    if (!id) return;
-    setInjuryLoading(true);
-    setInjuryResult(null);
-    try {
-      const result = await playersApi.refreshInjuries(id);
-      setInjuryResult(result);
-      if (result.matched) {
-        setPlayer(await playersApi.get(id));
-      }
-    } catch (err) {
-      setInjuryResult({
-        playerId: id,
-        matched: false,
-        seasonsUpdated: 0,
-        error: err instanceof ApiError ? err.message : "Errore imprevisto.",
-      });
-    } finally {
-      setInjuryLoading(false);
-    }
-  }
 
   useEffect(() => {
     if (!id) return;
@@ -243,35 +219,6 @@ export function PlayerDetailPage() {
           Nessuna valutazione ancora calcolata per questo giocatore.
         </p>
       )}
-
-      <section className="space-y-2 rounded-lg border border-sky-500/20 bg-sky-500/[0.03] p-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-medium text-sky-200">Infortuni (Transfermarkt)</h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Non in spec, richiesto esplicitamente: cerca lo storico infortuni di questo
-              giocatore su Transfermarkt e aggiorna la colonna qui sotto. Azione on-demand,
-              un giocatore alla volta (il tentativo su più giocatori insieme è stato bloccato
-              dal sito con HTTP 504).
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleRefreshInjuries}
-            disabled={injuryLoading}
-            className="whitespace-nowrap rounded border border-sky-500/40 px-3 py-1.5 text-xs font-medium text-sky-300 hover:bg-sky-500/10 disabled:opacity-40"
-          >
-            {injuryLoading ? "Cerco…" : "Cerca infortuni"}
-          </button>
-        </div>
-        {injuryResult && (
-          <p className={`text-xs ${injuryResult.matched ? "text-emerald-400" : "text-amber-400"}`}>
-            {injuryResult.matched
-              ? `Trovato su Transfermarkt: ${injuryResult.seasonsUpdated} stagioni aggiornate.`
-              : injuryResult.error ?? "Nessun match trovato."}
-          </p>
-        )}
-      </section>
 
       {player.seasonStats.length > 0 && (
         <section className="space-y-3">

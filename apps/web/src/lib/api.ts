@@ -8,7 +8,6 @@ import type {
   Participant,
   PlayerAvailability,
   PlayerEvaluation,
-  PlayerInjuryImportResult,
   PlayerListItem,
   PlayerRole,
   SetPieceType,
@@ -142,10 +141,6 @@ export const playersApi = {
   list: (filter: PlayersFilter = {}) =>
     api.get<PlayerListItem[]>(`/players${toQueryString({ ...filter })}`),
   get: (id: string) => api.get<PlayerDetail>(`/players/${id}`),
-  /** Import infortuni da Transfermarkt on-demand per un solo giocatore (vedi
-   * apps/api/src/import/transfermarktInjuries.ts): il tentativo batch ha fallito con HTTP 504
-   * su ogni richiesta in produzione, sostituito con questa azione più leggera. */
-  refreshInjuries: (id: string) => api.post<PlayerInjuryImportResult>(`/players/${id}/injuries`, {}),
 };
 
 export const participantsApi = {

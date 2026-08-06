@@ -2,7 +2,7 @@ import type { PlayerRole } from "./common.js";
 import type { HierarchyLevel, SetPieceType } from "./player.js";
 
 /** Identificatore di una fonte dati di import (sez. 5). Aggiungere qui ogni nuovo connettore. */
-export type ImportSourceId = "fantacalcio-it" | "fstats" | "fantacalciopedia" | "transfermarkt";
+export type ImportSourceId = "fantacalcio-it" | "fstats" | "fantacalciopedia";
 
 /** Statistiche di una stagione cosi' come riportate da una fonte, prima del merge nel DB. */
 export interface ImportedSeasonStats {
@@ -69,15 +69,4 @@ export interface ImportRunSummary {
   finishedAt: string;
   results: ImportSourceResult[];
   evaluation: EvaluationRunSummary;
-}
-
-/** Risultato di un'importazione infortuni da Transfermarkt per UN giocatore (richiesto
- * esplicitamente dall'utente, non in spec), on-demand dal suo dettaglio — non un'azione batch:
- * il primo tentativo su un sottoinsieme di 20 giocatori ha fallito con HTTP 504 su ogni
- * richiesta, sostituito con un'azione a un giocatore alla volta. Vedi CLAUDE.md sez. 5. */
-export interface PlayerInjuryImportResult {
-  playerId: string;
-  matched: boolean;
-  seasonsUpdated: number;
-  error: string | null;
 }

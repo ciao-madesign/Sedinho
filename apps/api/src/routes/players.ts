@@ -2,7 +2,6 @@ import type { FastifyInstance } from "fastify";
 import type { PlayerListItem } from "@sedinho/shared";
 import { prisma } from "../db/prisma.js";
 import { toPlayerEvaluation } from "../lib/evaluation-mapper.js";
-import { importInjuriesForPlayer } from "../import/transfermarktInjuries.js";
 
 interface ListPlayersQuery {
   role?: string;
@@ -78,15 +77,5 @@ export async function playerRoutes(app: FastifyInstance) {
     // Il confine JSON-string <-> tipi condivisi va sempre attraversato tramite il mapper
     // dedicato (vedi lib/evaluation-mapper.ts), mai esponendo le stringhe serializzate.
     return { ...player, evaluations: player.evaluations.map(toPlayerEvaluation) };
-  });
-
-  // Import infortuni da Transfermarkt on-demand per UN giocatore (richiesto esplicitamente
-  // dall'utente, non in spec): un tentativo batch su 20 giocatori ha fallito con HTTP 504 su
-  // ogni richiesta in produzione, sostituito con questa azione più leggera e verificabile un
-  // giocatore alla volta (vedi import/transfermarktInjuries.ts e CLAUDE.md sez. 5).
-  app.post<{ Params: { id: string } }>("/players/:id/injuries", async (request, reply) => {
-    const player = await prisma.player.findUnique({ where: { id: request.params.id } });
-    if (!player) return reply.code(404).send({ error: "Giocatore non trovato" });
-    return importInjuriesForPlayer(player.id);
   });
 }

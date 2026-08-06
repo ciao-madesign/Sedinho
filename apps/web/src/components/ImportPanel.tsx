@@ -6,7 +6,6 @@ const sourceLabels: Record<string, string> = {
   "fantacalcio-it": "Fantacalcio.it",
   fstats: "FSTATS",
   fantacalciopedia: "Fantacalciopedia",
-  transfermarkt: "Transfermarkt",
 };
 
 const statusStyles: Record<ImportSourceResult["status"], string> = {
@@ -23,10 +22,7 @@ const statusLabels: Record<ImportSourceResult["status"], string> = {
 
 /** Pulsante "Aggiorna Database" (sez. 5): unico punto da cui parte l'import dati, mai
  * automatico. Mostra il riepilogo per fonte cosi' com'e' restituito da POST /import/run,
- * inclusi gli errori dei connettori non ancora completati o falliti. L'import infortuni da
- * Transfermarkt (richiesto esplicitamente dall'utente) non è qui: un tentativo batch su 20
- * giocatori ha fallito con HTTP 504 su ogni richiesta in produzione, sostituito con un'azione
- * on-demand per un solo giocatore alla volta, disponibile sul suo dettaglio (PlayerDetailPage). */
+ * inclusi gli errori dei connettori non ancora completati o falliti. */
 export function ImportPanel() {
   const [running, setRunning] = useState(false);
   const [summary, setSummary] = useState<ImportRunSummary | null>(null);
