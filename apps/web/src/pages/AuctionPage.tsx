@@ -1,14 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  Legend,
-  PolarAngleAxis,
-  PolarGrid,
-  PolarRadiusAxis,
-  Radar,
-  RadarChart,
-  ResponsiveContainer,
-  Tooltip,
-} from "recharts";
+import { PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer } from "recharts";
 import type {
   ActiveAuctionState,
   AuctionEntryView,
@@ -21,7 +12,6 @@ import type {
   PlayerListItem,
   PlayerRole,
   RosterRadarAxes,
-  RosterRadarProfile,
   ShortlistEntryView,
   ShortlistPriority,
 } from "@sedinho/shared";
@@ -29,6 +19,7 @@ import { ApiError, auctionApi, leaguesApi, participantsApi, playersApi } from ".
 import { PlayerRoleBadge } from "../components/PlayerRoleBadge.js";
 import { ShortlistStarButton } from "../components/ShortlistStarButton.js";
 import { AiCommentaryPanel } from "../components/AiCommentaryPanel.js";
+import { ROSTER_RADAR_AXES } from "../lib/rosterRadarFormat.js";
 import { useShortlist } from "../lib/useShortlist.js";
 import { formatCredits, roleLabels } from "../lib/playerFormat.js";
 import { priorityBadgeClass } from "../lib/shortlistFormat.js";
@@ -735,11 +726,13 @@ function ParticipantRosterCard({
   entries,
   quotationOf,
   onRemoveEntry,
+  radarAxes,
 }: {
   participant: ActiveAuctionState["participants"][number];
   entries: AuctionEntryView[];
   quotationOf: (playerId: string) => number | null;
   onRemoveEntry: (entryId: string) => void;
+  radarAxes: RosterRadarAxes | undefined;
 }) {
   const sorted = [...entries].sort(
     (a, b) => ROLE_ORDER.indexOf(a.player.role) - ROLE_ORDER.indexOf(b.player.role),
@@ -813,6 +806,23 @@ function ParticipantRosterCard({
       {entries.length > 0 && (
         <div className="border-t border-slate-800/60 px-3 py-1.5 text-right text-xs text-slate-500">
           speso {formatCredits(spent)}
+        </div>
+      )}
+      {radarAxes && entries.length > 0 && (
+        <div className="border-t border-slate-800/60 p-2">
+          <ResponsiveContainer width="100%" height={160}>
+            <RadarChart data={ROSTER_RADAR_AXES.map(({ key, label }) => ({ subject: label, value: radarAxes[key] }))}>
+              <PolarGrid stroke="#1e293b" />
+              <PolarAngleAxis dataKey="subject" stroke="#64748b" fontSize={10} />
+              <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
+              <Radar
+                dataKey="value"
+                stroke={participant.isMe ? "#34d399" : "#60a5fa"}
+                fill={participant.isMe ? "#34d399" : "#60a5fa"}
+                fillOpacity={0.25}
+              />
+            </RadarChart>
+          </ResponsiveContainer>
         </div>
       )}
     </div>
@@ -1147,81 +1157,6 @@ function PoolRankingPanel({
   );
 }
 
-const RADAR_AXES: { key: keyof RosterRadarAxes; label: string }[] = [
-  { key: "bonus", label: "Bonus" },
-  { key: "depth", label: "Profondità" },
-  { key: "attack", label: "Attacco" },
-  { key: "defense", label: "Difesa" },
-  { key: "reliability", label: "Affidabilità" },
-  { key: "gamble", label: "Scommessa" },
-];
-
-const RADAR_COLORS = ["#34d399", "#60a5fa", "#f472b6", "#fbbf24", "#a78bfa", "#fb923c"];
-
-const radarTooltipStyle = {
-  backgroundColor: "#0f172a",
-  border: "1px solid #1e293b",
-  borderRadius: 6,
-  fontSize: 12,
-};
-
-/** Radar di rosa (richiesto esplicitamente dall'utente, non in spec): tutte le rose sovrapposte
- * sullo stesso grafico (coerente con "grafici sovrapponibili", la funzionalità che la spec sez.
- * 10 segnala come fondamentale — vedi anche `/confronti`). 6 assi 0..100, ricalcolati dal
- * server (`computeRosterRadar.ts`) ad ogni inserimento dai soli dati già prodotti dal Player
- * Evaluation Engine — nessun nuovo dato raccolto qui, solo un'aggregazione per rosa. */
-function RosterRadarPanel({
-  radar,
-  participants,
-}: {
-  radar: RosterRadarProfile[];
-  participants: ActiveAuctionState["participants"];
-}) {
-  const nameById = new Map(participants.map((p) => [p.id, p.name]));
-
-  const data = RADAR_AXES.map(({ key, label }) => {
-    const row: Record<string, string | number> = { subject: label };
-    for (const profile of radar) {
-      row[nameById.get(profile.participantId) ?? profile.participantId] = profile.axes[key];
-    }
-    return row;
-  });
-
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-      <h2 className="mb-3 font-medium">Radar di rosa</h2>
-      <ResponsiveContainer width="100%" height={320}>
-        <RadarChart data={data}>
-          <PolarGrid stroke="#1e293b" />
-          <PolarAngleAxis dataKey="subject" stroke="#94a3b8" fontSize={12} />
-          <PolarRadiusAxis domain={[0, 100]} stroke="#475569" fontSize={10} tickCount={5} />
-          <Tooltip contentStyle={radarTooltipStyle} />
-          <Legend wrapperStyle={{ fontSize: 12 }} />
-          {radar.map((profile, i) => {
-            const name = nameById.get(profile.participantId) ?? profile.participantId;
-            const color = RADAR_COLORS[i % RADAR_COLORS.length];
-            return (
-              <Radar
-                key={profile.participantId}
-                name={name}
-                dataKey={name}
-                stroke={color}
-                fill={color}
-                fillOpacity={0.15}
-              />
-            );
-          })}
-        </RadarChart>
-      </ResponsiveContainer>
-      <p className="mt-2 text-[11px] text-slate-600">
-        0-100 per asse, dai dati già calcolati dal Player Evaluation Engine (bonus/valore/
-        stabilità) — nessun nuovo dato raccolto. "Affidabilità" e "Scommessa" sono proxy
-        dichiarate su età e stabilità storica del rendimento, non una previsione garantita.
-      </p>
-    </div>
-  );
-}
-
 export function AuctionPage() {
   const [league, setLeague] = useState<LeagueConfig | null | undefined>(undefined);
   const [participants, setParticipants] = useState<Participant[] | undefined>(undefined);
@@ -1503,13 +1438,12 @@ export function AuctionPage() {
                     entries={auction.entries.filter((e) => e.buyer.id === participant.id)}
                     quotationOf={(playerId) => playersById.get(playerId)?.initialQuotation ?? null}
                     onRemoveEntry={handleRemoveEntry}
+                    radarAxes={auction.rosterRadar.find((r) => r.participantId === participant.id)?.axes}
                   />
                 ))}
               </div>
             </div>
           </div>
-
-          <RosterRadarPanel radar={auction.rosterRadar} participants={auction.participants} />
 
           <OpponentsPanel opponents={auction.opponents} participants={auction.participants} />
 

@@ -6,17 +6,34 @@ import {
   Legend,
   Line,
   LineChart,
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+  Radar,
+  RadarChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
-import type { PlayerListItem } from "@sedinho/shared";
-import { playersApi, type PlayerDetail } from "../lib/api.js";
+import type { ActiveAuctionState, PlayerListItem, PlayerRole } from "@sedinho/shared";
+import { auctionApi, playersApi, type PlayerDetail } from "../lib/api.js";
 import { PlayerRoleBadge } from "../components/PlayerRoleBadge.js";
+import { ROSTER_RADAR_AXES } from "../lib/rosterRadarFormat.js";
 
 const MAX_PLAYERS = 4;
 const PLAYER_COLORS = ["#34d399", "#60a5fa", "#f472b6", "#fbbf24"];
+
+type PlayerSortKey = "value" | "quotation" | "starter" | "name";
+
+const ROLE_FILTERS: (PlayerRole | "ALL")[] = ["ALL", "P", "D", "C", "A"];
+
+const PLAYER_SORT_OPTIONS: { key: PlayerSortKey; label: string }[] = [
+  { key: "value", label: "Valore" },
+  { key: "quotation", label: "Quotazione" },
+  { key: "starter", label: "Prob. titolare" },
+  { key: "name", label: "Nome" },
+];
 
 function latestSeason(player: PlayerDetail) {
   return [...player.seasonStats].sort((a, b) => b.season.localeCompare(a.season))[0] ?? null;
@@ -28,11 +45,16 @@ function latestSeason(player: PlayerDetail) {
  * tutti i 9 tipi di grafico della spec: radar/heatmap/box plot/distribuzioni/timeline restano
  * da fare in un secondo giro. */
 export function ComparePage() {
+  const [mode, setMode] = useState<"giocatori" | "rose">("giocatori");
   const [pool, setPool] = useState<PlayerListItem[] | undefined>(undefined);
   const [search, setSearch] = useState("");
+  const [role, setRole] = useState<PlayerRole | "ALL">("ALL");
+  const [team, setTeam] = useState("ALL");
+  const [sortKey, setSortKey] = useState<PlayerSortKey>("value");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [details, setDetails] = useState<Record<string, PlayerDetail>>({});
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [auction, setAuction] = useState<ActiveAuctionState | null | undefined>(undefined);
 
   useEffect(() => {
     playersApi
@@ -40,6 +62,14 @@ export function ComparePage() {
       .then(setPool)
       .catch(() => setPool([]));
   }, []);
+
+  useEffect(() => {
+    if (mode !== "rose" || auction !== undefined) return;
+    auctionApi
+      .getActive()
+      .then(setAuction)
+      .catch(() => setAuction(null));
+  }, [mode, auction]);
 
   useEffect(() => {
     const missing = selectedIds.filter((id) => !details[id]);
@@ -56,14 +86,32 @@ export function ComparePage() {
       .finally(() => setLoadingDetail(false));
   }, [selectedIds, details]);
 
+  const teams = useMemo(() => {
+    if (!pool) return [];
+    return Array.from(new Set(pool.map((p) => p.team).filter(Boolean))).sort();
+  }, [pool]);
+
   const searchResults = useMemo(() => {
-    if (!pool || !search.trim()) return [];
+    if (!pool) return [];
     const q = search.trim().toLowerCase();
     return pool
       .filter((p) => !selectedIds.includes(p.id))
-      .filter((p) => p.name.toLowerCase().includes(q))
-      .slice(0, 8);
-  }, [pool, search, selectedIds]);
+      .filter((p) => role === "ALL" || p.role === role)
+      .filter((p) => team === "ALL" || p.team === team)
+      .filter((p) => !q || p.name.toLowerCase().includes(q))
+      .sort((a, b) => {
+        switch (sortKey) {
+          case "quotation":
+            return (b.initialQuotation ?? -1) - (a.initialQuotation ?? -1);
+          case "value":
+            return (b.valueScore ?? -1) - (a.valueScore ?? -1);
+          case "starter":
+            return (b.starterProbability ?? -1) - (a.starterProbability ?? -1);
+          default:
+            return a.name.localeCompare(b.name);
+        }
+      });
+  }, [pool, search, role, team, sortKey, selectedIds]);
 
   const selectedPlayers = selectedIds.map((id) => details[id]).filter((d): d is PlayerDetail => !!d);
   const colorOf = (index: number) => PLAYER_COLORS[index % PLAYER_COLORS.length]!;
@@ -117,11 +165,35 @@ export function ComparePage() {
       <div>
         <h1 className="text-2xl font-semibold">Confronti</h1>
         <p className="mt-1 text-slate-400">
-          Scegli fino a {MAX_PLAYERS} giocatori per confrontarli sullo stesso grafico: fantamedia
-          storica, produzione, minuti, prezzo.
+          {mode === "giocatori"
+            ? `Scegli fino a ${MAX_PLAYERS} giocatori per confrontarli sullo stesso grafico: fantamedia storica, produzione, minuti, prezzo.`
+            : "Confronta le rose dei partecipanti a un'asta in corso, sovrapposte sullo stesso radar."}
         </p>
       </div>
 
+      <div className="flex gap-1 rounded-md border border-slate-800 bg-slate-900 p-1 w-fit">
+        <button
+          type="button"
+          onClick={() => setMode("giocatori")}
+          className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+            mode === "giocatori" ? "bg-emerald-500 text-slate-950" : "text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          Giocatori
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("rose")}
+          className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+            mode === "rose" ? "bg-emerald-500 text-slate-950" : "text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          Rose
+        </button>
+      </div>
+
+      {mode === "giocatori" && (
+      <>
       <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-900 p-4">
         <div className="flex flex-wrap gap-2">
           {selectedIds.map((id, i) => {
@@ -150,29 +222,72 @@ export function ComparePage() {
         </div>
 
         {selectedIds.length < MAX_PLAYERS && (
-          <div className="relative">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Cerca un giocatore da aggiungere…"
-              className="w-full max-w-sm rounded-md border border-slate-800 bg-slate-950 px-3 py-1.5 text-sm placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
-            />
-            {searchResults.length > 0 && (
-              <div className="absolute z-10 mt-1 w-full max-w-sm overflow-hidden rounded-md border border-slate-800 bg-slate-950 shadow-lg">
-                {searchResults.map((p) => (
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Cerca per nome…"
+                className="w-56 rounded-md border border-slate-800 bg-slate-950 px-3 py-1.5 text-sm placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
+              />
+              <div className="flex gap-1 rounded-md border border-slate-800 bg-slate-950 p-1">
+                {ROLE_FILTERS.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setRole(r)}
+                    className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                      role === r
+                        ? "bg-emerald-500 text-slate-950"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    {r === "ALL" ? "Tutti" : r}
+                  </button>
+                ))}
+              </div>
+              <select
+                value={team}
+                onChange={(e) => setTeam(e.target.value)}
+                className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1.5 text-xs focus:border-emerald-500 focus:outline-none"
+              >
+                <option value="ALL">Tutte le squadre</option>
+                {teams.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={sortKey}
+                onChange={(e) => setSortKey(e.target.value as PlayerSortKey)}
+                className="ml-auto rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1.5 text-xs focus:border-emerald-500 focus:outline-none"
+              >
+                {PLAYER_SORT_OPTIONS.map((opt) => (
+                  <option key={opt.key} value={opt.key}>
+                    Ordina per {opt.label.toLowerCase()}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="max-h-64 overflow-y-auto rounded-md border border-slate-800 bg-slate-950">
+              {searchResults.length === 0 ? (
+                <p className="p-3 text-center text-sm text-slate-600">Nessun giocatore trovato.</p>
+              ) : (
+                searchResults.map((p) => (
                   <button
                     key={p.id}
                     type="button"
                     onClick={() => addPlayer(p.id)}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-900"
+                    className="flex w-full items-center gap-2 border-b border-slate-800/60 px-3 py-2 text-left text-sm last:border-0 hover:bg-slate-900"
                   >
                     <PlayerRoleBadge role={p.role} />
                     <span className="flex-1 truncate">{p.name}</span>
                     <span className="text-xs text-slate-500">{p.team}</span>
                   </button>
-                ))}
-              </div>
-            )}
+                ))
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -251,9 +366,15 @@ export function ComparePage() {
       <p className="text-xs text-slate-500">
         "Prezzo atteso" viene dal Player Evaluation Engine (sez. 8), non da un prezzo pagato
         realmente — nessuna asta con dati storici sufficienti a mostrare un "prezzo reale" per
-        confronto oggi. Grafici radar/heatmap/box plot/distribuzioni/timeline della spec (sez.
-        10) non sono ancora stati costruiti.
+        confronto oggi. Grafici scatter/istogrammi/box plot/heatmap/distribuzioni/timeline della
+        spec (sez. 10) non sono ancora stati costruiti.
       </p>
+      </>
+      )}
+
+      {mode === "rose" && (
+        <RosterComparisonSection auction={auction} />
+      )}
     </div>
   );
 }
@@ -270,6 +391,73 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
     <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
       <h2 className="mb-3 text-sm font-medium text-slate-300">{title}</h2>
       {children}
+    </div>
+  );
+}
+
+const ROSTER_COLORS = ["#34d399", "#60a5fa", "#f472b6", "#fbbf24", "#a78bfa", "#fb923c"];
+
+/** Confronto tra rose (richiesto esplicitamente dall'utente, non in spec): tutte le rose
+ * sovrapposte sullo stesso radar, stesso principio "grafici sovrapponibili" già usato per il
+ * confronto giocatori sopra — ma qui il radar per singola rosa vive già dentro ogni card in
+ * `/auction` (una rosa alla volta, per tenerla leggibile durante l'asta); questa vista invece
+ * esiste apposta per il confronto diretto tra più rose, che li' non c'era. Richiede un'asta in
+ * corso: il radar di rosa (`rosterRadar`) è calcolato server-side solo dentro
+ * `ActiveAuctionState`, non esiste un concetto di "rosa" fuori da un'asta. */
+function RosterComparisonSection({ auction }: { auction: ActiveAuctionState | null | undefined }) {
+  if (auction === undefined) {
+    return <p className="text-sm text-slate-400">Caricamento…</p>;
+  }
+  if (auction === null) {
+    return (
+      <p className="text-sm text-slate-500">
+        Nessuna asta in corso: il confronto tra rose richiede un'asta attiva (i dati di rosa
+        vengono calcolati live durante l'asta, non esistono fuori da una). Avviala dalla tab{" "}
+        <span className="text-slate-300">Asta</span>.
+      </p>
+    );
+  }
+
+  const nameById = new Map(auction.participants.map((p) => [p.id, p.name]));
+  const data = ROSTER_RADAR_AXES.map(({ key, label }) => {
+    const row: Record<string, string | number> = { subject: label };
+    for (const profile of auction.rosterRadar) {
+      row[nameById.get(profile.participantId) ?? profile.participantId] = profile.axes[key];
+    }
+    return row;
+  });
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+      <h2 className="mb-3 text-sm font-medium text-slate-300">Radar di rosa — tutti i partecipanti</h2>
+      <ResponsiveContainer width="100%" height={360}>
+        <RadarChart data={data}>
+          <PolarGrid stroke="#1e293b" />
+          <PolarAngleAxis dataKey="subject" stroke="#94a3b8" fontSize={12} />
+          <PolarRadiusAxis domain={[0, 100]} stroke="#475569" fontSize={10} tickCount={5} />
+          <Tooltip contentStyle={tooltipStyle} />
+          <Legend wrapperStyle={{ fontSize: 12 }} />
+          {auction.rosterRadar.map((profile, i) => {
+            const name = nameById.get(profile.participantId) ?? profile.participantId;
+            const color = ROSTER_COLORS[i % ROSTER_COLORS.length];
+            return (
+              <Radar
+                key={profile.participantId}
+                name={name}
+                dataKey={name}
+                stroke={color}
+                fill={color}
+                fillOpacity={0.15}
+              />
+            );
+          })}
+        </RadarChart>
+      </ResponsiveContainer>
+      <p className="mt-2 text-xs text-slate-500">
+        0-100 per asse, dai dati già calcolati dal Player Evaluation Engine (bonus/valore/
+        stabilità) — nessun nuovo dato raccolto. "Affidabilità" e "Scommessa" sono proxy
+        dichiarate su età e stabilità storica del rendimento, non una previsione garantita.
+      </p>
     </div>
   );
 }
