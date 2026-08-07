@@ -13,8 +13,14 @@ import { buildAuctionCommentaryPrompt } from "../lib/buildAuctionCommentaryPromp
  * chiave Anthropic dell'utente, chiamata direttamente dal browser (mai dal nostro server — vedi
  * lib/anthropicClient.ts). La chiave vive solo in `sessionStorage` di questo browser: sparisce
  * alla chiusura della scheda, non è mai salvata nel nostro database, non è condivisa con altri
- * utenti anche se loggati sulla stessa lega. Generazione solo su richiesta esplicita (pulsante),
- * mai automatica: ogni commento consuma crediti sulla chiave personale dell'utente. */
+ * utenti anche se loggati sulla stessa lega — inserita una volta, resta valida per tutta la
+ * durata dell'asta (finché la scheda resta aperta). Pannello **sempre visibile** in `/auction`
+ * (non più un drawer, richiesto esplicitamente dall'utente): "Genera commento" fa ripartire
+ * l'osservazione ogni volta, confrontando lo stato attuale con l'ultima volta che è stato
+ * generato un commento (vedi `lastObservedTimestamp`), non solo l'ultimissimo inserimento —
+ * cosi' il modello vede TUTTI i movimenti successi nel frattempo, non solo l'ultimo. Generazione
+ * solo su richiesta esplicita (pulsante), mai automatica: ogni commento consuma crediti sulla
+ * chiave personale dell'utente. */
 export function AiCommentaryPanel({
   auction,
   players,
@@ -32,6 +38,9 @@ export function AiCommentaryPanel({
   const [commentary, setCommentary] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastObservedTimestamp, setLastObservedTimestamp] = useState<string | null>(() =>
+    sessionStorage.getItem(SESSION_KEYS.lastObservedTimestamp),
+  );
 
   useEffect(() => {
     if (!apiKey) return;
@@ -65,10 +74,12 @@ export function AiCommentaryPanel({
   function handleForgetKey() {
     sessionStorage.removeItem(SESSION_KEYS.apiKey);
     sessionStorage.removeItem(SESSION_KEYS.model);
+    sessionStorage.removeItem(SESSION_KEYS.lastObservedTimestamp);
     setApiKey(null);
     setModels([]);
     setModel("");
     setCommentary(null);
+    setLastObservedTimestamp(null);
   }
 
   async function handleGenerate() {
@@ -76,8 +87,13 @@ export function AiCommentaryPanel({
     setGenerating(true);
     setError(null);
     try {
-      const { system, user } = buildAuctionCommentaryPrompt(auction, players);
+      const { system, user } = buildAuctionCommentaryPrompt(auction, players, lastObservedTimestamp);
       setCommentary(await generateCommentary(apiKey, model, system, user));
+      // Segna come "osservato" il momento di questa generazione: il prossimo commento
+      // partirà da qui per calcolare cosa è cambiato nel frattempo.
+      const newest = auction.entries[0]?.timestamp ?? new Date().toISOString();
+      sessionStorage.setItem(SESSION_KEYS.lastObservedTimestamp, newest);
+      setLastObservedTimestamp(newest);
     } catch (err) {
       setError(err instanceof AnthropicApiError ? err.message : "Errore imprevisto.");
     } finally {
@@ -150,6 +166,13 @@ export function AiCommentaryPanel({
           </div>
 
           {error && <p className="text-xs text-red-400">{error}</p>}
+
+          {lastObservedTimestamp && (
+            <p className="text-[11px] text-slate-600">
+              Ultima osservazione: {new Date(lastObservedTimestamp).toLocaleTimeString("it-IT")}. Il
+              prossimo commento partirà da qui.
+            </p>
+          )}
 
           {commentary && (
             <p className="whitespace-pre-line rounded-md border border-violet-500/20 bg-slate-950/40 p-3 text-sm text-slate-200">

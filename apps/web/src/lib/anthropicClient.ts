@@ -12,6 +12,11 @@ const ANTHROPIC_VERSION = "2023-06-01";
 export const SESSION_KEYS = {
   apiKey: "sedinho.anthropicApiKey",
   model: "sedinho.anthropicModel",
+  /** Timestamp dell'ultimo inserimento osservato dall'ultimo commento generato (richiesto
+   * esplicitamente dall'utente: "l'AI osserva cosa è cambiato dall'ultima osservazione") —
+   * in sessionStorage cosi' un refresh della pagina non fa perdere il riferimento e far
+   * ripartire il commento da zero come se fosse la prima osservazione. */
+  lastObservedTimestamp: "sedinho.anthropicLastObservedTimestamp",
 } as const;
 
 export class AnthropicApiError extends Error {

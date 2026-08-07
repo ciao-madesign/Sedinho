@@ -16,6 +16,7 @@ import {
   computeDecisionRecommendation,
 } from "../lib/decision/computeDecisionRecommendation.js";
 import { rankPoolCandidates } from "../lib/decision/rankPoolCandidates.js";
+import { computeRosterRadar } from "../lib/roster/computeRosterRadar.js";
 
 const ROLES: PlayerRole[] = ["P", "D", "C", "A"];
 
@@ -44,7 +45,10 @@ export async function buildActiveAuctionState(auctionId: string): Promise<Active
       entries: {
         where: { revokedAt: null },
         orderBy: { timestamp: "desc" },
-        include: { player: true, buyer: true },
+        include: {
+          player: { include: { hierarchies: true } },
+          buyer: true,
+        },
       },
     },
   });
@@ -116,16 +120,18 @@ export async function buildActiveAuctionState(auctionId: string): Promise<Active
     starters,
   });
 
-  // Un valueScore per giocatore (piu' righe PlayerEvaluation storiche per lo stesso giocatore,
-  // ordinate per computedAt desc: si tiene solo la prima incontrata, la piu' recente).
+  // Valutazione completa per giocatore (piu' righe PlayerEvaluation storiche per lo stesso
+  // giocatore, ordinate per computedAt desc: si tiene solo la prima incontrata, la piu'
+  // recente). Riusata sia per il valueScore dei profili avversari sia per bonus/stabilita' del
+  // radar di rosa sotto — un'unica query invece di due.
   const evaluationRows = await prisma.playerEvaluation.findMany({
     where: { playerId: { in: [...new Set(auction.entries.map((e) => e.playerId))] } },
     orderBy: { computedAt: "desc" },
   });
-  const valueScoreByPlayerId = new Map<string, number | null>();
+  const evaluationByPlayerId = new Map<string, ReturnType<typeof toPlayerEvaluation>>();
   for (const row of evaluationRows) {
-    if (!valueScoreByPlayerId.has(row.playerId)) {
-      valueScoreByPlayerId.set(row.playerId, toPlayerEvaluation(row).value.valueScore);
+    if (!evaluationByPlayerId.has(row.playerId)) {
+      evaluationByPlayerId.set(row.playerId, toPlayerEvaluation(row));
     }
   }
 
@@ -139,9 +145,44 @@ export async function buildActiveAuctionState(auctionId: string): Promise<Active
       price: entry.price,
       team: entry.player.team,
       quotation: entry.player.initialQuotation ?? null,
-      valueScore: valueScoreByPlayerId.get(entry.playerId) ?? null,
+      valueScore: evaluationByPlayerId.get(entry.playerId)?.value.valueScore ?? null,
       birthDate: entry.player.birthDate ? entry.player.birthDate.toISOString() : null,
     })),
+  });
+
+  // Radar di rosa (richiesto esplicitamente dall'utente, non in spec): un profilo per
+  // partecipante dai soli giocatori gia' acquistati in questa asta, riusando la stessa
+  // valutazione gia' recuperata sopra (nessun nuovo dato raccolto).
+  const rosterRadar = computeRosterRadar({
+    participants: participantSummaries.map((p) => ({
+      participantId: p.id,
+      players: auction.entries
+        .filter((entry) => entry.buyerId === p.id)
+        .map((entry) => {
+          const evaluation = evaluationByPlayerId.get(entry.playerId);
+          return {
+            role: entry.player.role as PlayerRole,
+            birthDateIso: entry.player.birthDate ? entry.player.birthDate.toISOString() : null,
+            hierarchyLevel: bestHierarchyLevel(entry.player.hierarchies),
+            valueScore: evaluation?.value.valueScore ?? null,
+            bonus: evaluation
+              ? {
+                  penaltyPotential: evaluation.bonus.penaltyPotential,
+                  freeKickPotential: evaluation.bonus.freeKickPotential,
+                  cleanSheetPotential: evaluation.bonus.cleanSheetPotential,
+                  assistPotential: evaluation.bonus.assistPotential,
+                }
+              : { penaltyPotential: null, freeKickPotential: null, cleanSheetPotential: null, assistPotential: null },
+            stability: evaluation
+              ? {
+                  consistencyIndex: evaluation.stability.consistencyIndex,
+                  volatilityIndex: evaluation.stability.volatilityIndex,
+                }
+              : { consistencyIndex: null, volatilityIndex: null },
+          };
+        }),
+    })),
+    totalRosterSlots: ROLES.reduce((sum, role) => sum + leagueConfig.rosterComposition[role], 0),
   });
 
   return {
@@ -163,6 +204,7 @@ export async function buildActiveAuctionState(auctionId: string): Promise<Active
     participants: participantSummaries,
     market,
     opponents,
+    rosterRadar,
   };
 }
 

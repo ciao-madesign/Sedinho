@@ -66,6 +66,36 @@ export interface ActiveAuctionState {
   participants: ParticipantAuctionSummary[];
   market: MarketState;
   opponents: OpponentProfile[];
+  rosterRadar: RosterRadarProfile[];
+}
+
+/** I 6 assi del radar di rosa (richiesto esplicitamente dall'utente, non in spec): 0..100,
+ * ricalcolati ad ogni inserimento dai soli dati già calcolati da altri motori (Player
+ * Evaluation Engine) — nessun nuovo dato raccolto, solo un'aggregazione diversa. Un partecipante
+ * senza giocatori in un determinato ruolo/categoria ha 0 su quell'asse (non `null`: qui "zero
+ * investimento" è un'informazione reale, a differenza del pattern `number | null` usato altrove
+ * per "dato non disponibile" su un singolo giocatore). */
+export interface RosterRadarAxes {
+  /** Potenziale bonus medio (rigori/punizioni/clean sheet/assist) dei giocatori in rosa. */
+  bonus: number;
+  /** Quota di titolari (gerarchia reale) sul totale degli slot di rosa previsti dalla lega:
+   * più titolari, meno rischio di dover schierare un rincalzo. */
+  depth: number;
+  /** Valore medio (valueScore) degli attaccanti acquistati. */
+  attack: number;
+  /** Valore medio (valueScore) di difensori e portiere acquistati. */
+  defense: number;
+  /** Età media (più alta = più affidabile, proxy dichiarata) combinata con la stabilità di
+   * rendimento storica (`StabilityIndices.consistencyIndex`) dei giocatori in rosa. */
+  reliability: number;
+  /** Quota di giocatori giovani combinata con l'imprevedibilità di rendimento storica
+   * (`StabilityIndices.volatilityIndex`) — "scommesse"/potenziali talenti, proxy dichiarata. */
+  gamble: number;
+}
+
+export interface RosterRadarProfile {
+  participantId: string;
+  axes: RosterRadarAxes;
 }
 
 /** Profilo di un partecipante, costruito e aggiornato in tempo reale (sez. 12) dai soli

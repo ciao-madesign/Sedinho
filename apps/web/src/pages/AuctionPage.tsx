@@ -1,4 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  Legend,
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+  Radar,
+  RadarChart,
+  ResponsiveContainer,
+  Tooltip,
+} from "recharts";
 import type {
   ActiveAuctionState,
   AuctionEntryView,
@@ -10,6 +20,8 @@ import type {
   Participant,
   PlayerListItem,
   PlayerRole,
+  RosterRadarAxes,
+  RosterRadarProfile,
   ShortlistEntryView,
   ShortlistPriority,
 } from "@sedinho/shared";
@@ -1135,6 +1147,81 @@ function PoolRankingPanel({
   );
 }
 
+const RADAR_AXES: { key: keyof RosterRadarAxes; label: string }[] = [
+  { key: "bonus", label: "Bonus" },
+  { key: "depth", label: "Profondità" },
+  { key: "attack", label: "Attacco" },
+  { key: "defense", label: "Difesa" },
+  { key: "reliability", label: "Affidabilità" },
+  { key: "gamble", label: "Scommessa" },
+];
+
+const RADAR_COLORS = ["#34d399", "#60a5fa", "#f472b6", "#fbbf24", "#a78bfa", "#fb923c"];
+
+const radarTooltipStyle = {
+  backgroundColor: "#0f172a",
+  border: "1px solid #1e293b",
+  borderRadius: 6,
+  fontSize: 12,
+};
+
+/** Radar di rosa (richiesto esplicitamente dall'utente, non in spec): tutte le rose sovrapposte
+ * sullo stesso grafico (coerente con "grafici sovrapponibili", la funzionalità che la spec sez.
+ * 10 segnala come fondamentale — vedi anche `/confronti`). 6 assi 0..100, ricalcolati dal
+ * server (`computeRosterRadar.ts`) ad ogni inserimento dai soli dati già prodotti dal Player
+ * Evaluation Engine — nessun nuovo dato raccolto qui, solo un'aggregazione per rosa. */
+function RosterRadarPanel({
+  radar,
+  participants,
+}: {
+  radar: RosterRadarProfile[];
+  participants: ActiveAuctionState["participants"];
+}) {
+  const nameById = new Map(participants.map((p) => [p.id, p.name]));
+
+  const data = RADAR_AXES.map(({ key, label }) => {
+    const row: Record<string, string | number> = { subject: label };
+    for (const profile of radar) {
+      row[nameById.get(profile.participantId) ?? profile.participantId] = profile.axes[key];
+    }
+    return row;
+  });
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+      <h2 className="mb-3 font-medium">Radar di rosa</h2>
+      <ResponsiveContainer width="100%" height={320}>
+        <RadarChart data={data}>
+          <PolarGrid stroke="#1e293b" />
+          <PolarAngleAxis dataKey="subject" stroke="#94a3b8" fontSize={12} />
+          <PolarRadiusAxis domain={[0, 100]} stroke="#475569" fontSize={10} tickCount={5} />
+          <Tooltip contentStyle={radarTooltipStyle} />
+          <Legend wrapperStyle={{ fontSize: 12 }} />
+          {radar.map((profile, i) => {
+            const name = nameById.get(profile.participantId) ?? profile.participantId;
+            const color = RADAR_COLORS[i % RADAR_COLORS.length];
+            return (
+              <Radar
+                key={profile.participantId}
+                name={name}
+                dataKey={name}
+                stroke={color}
+                fill={color}
+                fillOpacity={0.15}
+              />
+            );
+          })}
+        </RadarChart>
+      </ResponsiveContainer>
+      <p className="mt-2 text-[11px] text-slate-600">
+        0-100 per asse, dai dati già calcolati dal Player Evaluation Engine (bonus/valore/
+        stabilità) — nessun nuovo dato raccolto. "Affidabilità" e "Scommessa" sono proxy
+        dichiarate su età e stabilità storica del rendimento, non una previsione garantita.
+      </p>
+    </div>
+  );
+}
+
 export function AuctionPage() {
   const [league, setLeague] = useState<LeagueConfig | null | undefined>(undefined);
   const [participants, setParticipants] = useState<Participant[] | undefined>(undefined);
@@ -1150,7 +1237,7 @@ export function AuctionPage() {
   } | null>(null);
   const [undoMessage, setUndoMessage] = useState<string | null>(null);
   const [undoLoading, setUndoLoading] = useState(false);
-  const [openDrawer, setOpenDrawer] = useState<"obiettivi" | "ai" | "occasioni" | null>(null);
+  const [openDrawer, setOpenDrawer] = useState<"obiettivi" | "occasioni" | null>(null);
   const shortlist = useShortlist();
 
   useEffect(() => {
@@ -1358,17 +1445,6 @@ export function AuctionPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setOpenDrawer(openDrawer === "ai" ? null : "ai")}
-                className={`whitespace-nowrap rounded border px-3 py-1.5 text-xs font-medium transition-colors ${
-                  openDrawer === "ai"
-                    ? "border-violet-500/50 bg-violet-500/10 text-violet-300"
-                    : "border-slate-700 text-slate-400 hover:border-violet-500/50 hover:text-violet-300"
-                }`}
-              >
-                💬 Commento AI
-              </button>
-              <button
-                type="button"
                 onClick={() => setOpenDrawer(openDrawer === "occasioni" ? null : "occasioni")}
                 className={`whitespace-nowrap rounded border px-3 py-1.5 text-xs font-medium transition-colors ${
                   openDrawer === "occasioni"
@@ -1433,12 +1509,20 @@ export function AuctionPage() {
             </div>
           </div>
 
+          <RosterRadarPanel radar={auction.rosterRadar} participants={auction.participants} />
+
           <OpponentsPanel opponents={auction.opponents} participants={auction.participants} />
 
           <OpponentTraitsPanel
             participants={participants ?? []}
             onUpdate={handleUpdateParticipantTraits}
           />
+
+          {/* Sempre visibile, non un drawer (richiesto esplicitamente dall'utente): il
+              commento AI deve restare sott'occhio durante l'asta senza doverlo riaprire ogni
+              volta, a differenza di Obiettivi/Occasioni che restano pannelli a consultazione
+              occasionale. */}
+          <AiCommentaryPanel auction={auction} players={players} />
 
           <p className="text-xs text-slate-500">
             La valutazione per-giocatore confronta il prezzo pagato con la sua quotazione
@@ -1458,11 +1542,7 @@ export function AuctionPage() {
               <div className="relative z-50 flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-slate-800 bg-slate-950 p-4 shadow-2xl">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="font-medium">
-                    {openDrawer === "obiettivi"
-                      ? "★ Obiettivi"
-                      : openDrawer === "ai"
-                        ? "💬 Commento AI"
-                        : "🎯 Occasioni"}
+                    {openDrawer === "obiettivi" ? "★ Obiettivi" : "🎯 Occasioni"}
                   </h2>
                   <button
                     type="button"
@@ -1484,8 +1564,6 @@ export function AuctionPage() {
                     onRemove={shortlist.remove}
                     onSetPriority={shortlist.setPriority}
                   />
-                ) : openDrawer === "ai" ? (
-                  <AiCommentaryPanel auction={auction} players={players} />
                 ) : (
                   <PoolRankingPanel
                     auctionId={auction.id}

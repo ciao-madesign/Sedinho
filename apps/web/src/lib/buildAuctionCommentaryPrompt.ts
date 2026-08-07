@@ -5,15 +5,34 @@ const SYSTEM_PROMPT = `Sei un commentatore esperto di fantacalcio (Serie A, moda
 /** Costruisce il prompt per il commento AI live (richiesto esplicitamente dall'utente, non in
  * spec): riusa gli stessi dati già calcolati da Market/Opponent/Evaluation Engine invece di far
  * "indovinare" tutto al modello — il valore aggiunto è il commento in linguaggio naturale, non
- * i numeri, che restano quelli reali già mostrati nei pannelli dell'asta. */
+ * i numeri, che restano quelli reali già mostrati nei pannelli dell'asta. `sinceTimestamp` è il
+ * timestamp dell'inserimento più recente all'ULTIMA generazione (richiesto esplicitamente:
+ * "l'AI osserva cosa è cambiato dall'ultima osservazione"): `null` alla primissima chiamata di
+ * questa sessione, altrimenti delimita i "movimenti recenti" da segnalare esplicitamente. */
 export function buildAuctionCommentaryPrompt(
   state: ActiveAuctionState,
   players: PlayerListItem[],
+  sinceTimestamp: string | null,
 ): { system: string; user: string } {
   const soldIds = new Set(state.entries.map((e) => e.player.id));
   const me = state.participants.find((p) => p.isMe);
 
   const lastEntry = state.entries[0]; // già ordinati per timestamp desc
+
+  // "Movimenti recenti" (richiesto esplicitamente): tutti gli inserimenti successivi
+  // all'ultima osservazione, non solo l'ultimissimo — se tra un commento e l'altro sono
+  // successe più assegnazioni, il modello deve vederle tutte. Alla primissima osservazione
+  // (sinceTimestamp null) si limita al solo ultimo inserimento, stesso comportamento di prima.
+  const recentMoves = (
+    sinceTimestamp ? state.entries.filter((e) => e.timestamp > sinceTimestamp) : state.entries.slice(0, 1)
+  )
+    .slice(0, 12)
+    .map((e) => ({
+      giocatore: e.player.name,
+      ruolo: e.player.role,
+      prezzoPagato: e.price,
+      acquirente: e.buyer.name,
+    }));
 
   const opponents = state.opponents
     .filter((o) => o.participantId !== me?.id)
@@ -59,6 +78,7 @@ export function buildAuctionCommentaryPrompt(
           acquirente: lastEntry.buyer.name,
         }
       : null,
+    movimentiDaUltimaOsservazione: recentMoves,
     mercato: {
       inflazionePrezzi: state.market.priceInflation,
       temperatura: state.market.marketTemperature,
@@ -76,7 +96,14 @@ export function buildAuctionCommentaryPrompt(
     occasioniDisponibili: opportunities,
   };
 
-  const user = `Ecco lo stato attuale dell'asta (JSON):\n${JSON.stringify(payload, null, 2)}\n\nCommenta l'ultimo inserimento (se presente), dai 1-2 consigli operativi per me${me ? ` (${me.name})` : ""} e segnala 1-2 occasioni tra quelle disponibili elencate, coerenti con i ruoli che mi mancano.`;
+  const intro =
+    sinceTimestamp === null
+      ? "Prima osservazione di questa sessione d'asta."
+      : recentMoves.length > 0
+        ? `Dall'ultima volta che hai commentato ci sono stati ${recentMoves.length} nuovi inserimenti (vedi "movimentiDaUltimaOsservazione").`
+        : "Dall'ultima volta che hai commentato non ci sono stati nuovi inserimenti: aggiorna comunque il tuo consiglio se lo stato di mercato è cambiato.";
+
+  const user = `${intro}\n\nEcco lo stato attuale dell'asta (JSON):\n${JSON.stringify(payload, null, 2)}\n\nCommenta cosa è cambiato dall'ultima osservazione (o l'ultimo inserimento, se è la prima volta), dai 1-2 consigli operativi per me${me ? ` (${me.name})` : ""} e segnala 1-2 occasioni tra quelle disponibili elencate, coerenti con i ruoli che mi mancano.`;
 
   return { system: SYSTEM_PROMPT, user };
 }
