@@ -71,7 +71,14 @@ export function rankPoolCandidates(
         }
       }
 
-      return { p, score, reason, affordable: budgetRemaining === null || p.adjustedPrice! <= budgetRemaining };
+      // Il taglio sul budget ha senso solo per "chi chiamare adesso" (scoperto su un
+      // acquirente specifico): "miglior rapporto qualità/prezzo" e' una domanda di mercato
+      // generale, non legata a quanto "io" ho ancora da spendere — altrimenti un affare
+      // legittimo ma caro sparirebbe silenziosamente dalla classifica generale.
+      const affordable =
+        mode !== "next-call" || budgetRemaining === null || p.adjustedPrice! <= budgetRemaining;
+
+      return { p, score, reason, affordable };
     })
     .filter((c) => c.affordable)
     .sort((a, b) => b.score - a.score)

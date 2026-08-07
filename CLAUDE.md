@@ -453,6 +453,26 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   `/auction` (stesso pattern apribile di Obiettivi/Commento AI, vedi sotto) con toggle
   qualità/prezzo vs chi chiamare adesso e filtro ruolo — "chi chiamare adesso" e' sempre scoperto
   sul partecipante `isMe`, non ha senso nominare un giocatore per un rivale.
+- **2 bug trovati e corretti rileggendo il codice del Decision Engine a mente fredda** (il
+  sandbox non riesce a raggiungere Neon/Vercel da questa sessione per un test dal vivo contro
+  produzione, stessa limitazione di rete gia' documentata sopra — vedi §10 "verifica asta live":
+  revisione del codice al posto dell'esecuzione reale). (1) `teamConcentration` e la componente
+  di concentrazione per squadra dentro `rosterRisk` restituivano sempre "100% da questa squadra"
+  per il PRIMISSIMO acquisto di qualunque partecipante — non perche' fosse vero, ma perche' con
+  una rosa di un solo giocatore qualunque concentrazione e' banalmente 100% per costruzione.
+  Esattamente l'errore che `OpponentProfile.spendConcentration` (sez. 12) aveva gia' imparato a
+  evitare ("richiede almeno 2 acquisti") — reintrodotto qui per distrazione. Corretto applicando
+  la stessa soglia: `teamConcentration` resta `null` finche' l'acquirente non ha gia' almeno 1
+  giocatore in rosa, e la componente di concentrazione dentro `computeRiskScore` e' 0 finche' la
+  rosa (compreso il candidato) non arriva ad almeno 2 giocatori. (2) Il taglio per budget residuo
+  in `rankPoolCandidates` si applicava SEMPRE, anche in modalita' "miglior rapporto
+  qualità/prezzo" — che pero' e' esplicitamente documentata come domanda di mercato generale,
+  non legata a un acquirente specifico. Un affare legittimo ma piu' caro del budget residuo di
+  "io" spariva silenziosamente dalla classifica generale. Corretto: il filtro budget ora si
+  applica solo in modalita' "chi chiamare adesso" (`next-call`), coerente con la documentazione
+  della funzione. Nessuno dei due bug e' stato colto dalla type-check (entrambi type-safe, solo
+  logicamente sbagliati): lezione che compilare pulito non basta, serve rileggere la logica a
+  mente fredda quando l'esecuzione reale non e' possibile.
 - **Undo scope: solo l'asta live, non un undo generico per tutta l'app**: richiesto
   esplicitamente dall'utente, con lo scope chiarito esplicitamente ("solo asta live" scelto tra
   le opzioni proposte) per evitare di costruire un log di modifiche generico su ogni entità
@@ -771,3 +791,19 @@ e ha chiesto esplicitamente, come direzione per il resto del frontend:
     dedicata `/simulatore`, vedi riga sez. 4 e §5 sopra. Resta ⬜: simulazione dell'intera asta
     (scope esplicitamente non scelto ora), calibrazione su dati storici reali (nessuno
     disponibile).
+26. **Verifica asta live end-to-end (punti 7/10 sopra)** — **tentata, non riuscita**: da questa
+    sessione remota ne' Neon (porta 5432, connessione TCP rifiutata) ne' `sedinho.vercel.app`
+    (bloccato dal proxy di rete, `EGRESS_BLOCKED`) sono raggiungibili — stessa identica
+    limitazione gia' documentata per le sessioni precedenti (§5, "il sandbox di sviluppo... non
+    ha accesso a internet generico"), confermata di nuovo qui con un tentativo diretto (server
+    locale avviato con `npm run dev:api` usando le vere credenziali Neon da `apps/api/.env`:
+    parte, ma la query fallisce con "Can't reach database server"). **Fatto al posto della
+    verifica dal vivo**: una rilettura attenta (non solo type-check) di tutto il codice del
+    Decision Engine/Simulatore/tratti/priorità aggiunto in questa sessione — ha trovato e
+    corretto 2 bug logici reali (vedi §5, "2 bug trovati e corretti..."), entrambi invisibili
+    alla compilazione. Resta comunque non verificato con un'asta vera: **prossimo passo per
+    l'utente**, non per una sessione futura — solo lui puo' testare dal vivo contro Vercel/Neon
+    reali (o chiedere a una sessione locale con accesso a internet vero). Consigliato: nomina
+    2-3 partecipanti fittizi, fai qualche inserimento per ruoli diversi, controlla Market
+    Engine/Profilo avversari/Decision Engine/Simulatore/drawer Occasioni, poi `POST
+    /auctions/reset` per ripulire prima dell'asta vera.

@@ -52,7 +52,11 @@ export const ALTERNATIVE_VALUE_SCORE_TOLERANCE = 0.15;
 /** 0..1, più alto = rosa più rischiosa: media pesata di quota infortunati/non disponibili,
  * quota di riserve dichiarate (esclude i `null`, dato mancante non e' un rischio noto) e quota
  * massima di giocatori dalla stessa squadra. Euristica dichiarata (stesso spirito di
- * `OpponentProfile.aggressiveness`, sez. 12), non una probabilità calibrata. */
+ * `OpponentProfile.aggressiveness`, sez. 12), non una probabilità calibrata. La componente di
+ * concentrazione per squadra richiede almeno 2 giocatori in rosa (stesso motivo di
+ * `OpponentProfile.spendConcentration`): con un solo giocatore la concentrazione vale sempre
+ * "tutto su una squadra" per costruzione, non dice nulla — senza questa soglia il primissimo
+ * acquisto di qualunque partecipante gonfierebbe artificialmente il rischio. */
 function computeRiskScore(roster: RosterPlayerInput[]): number {
   if (roster.length === 0) return 0;
   const unavailableShare = roster.filter((p) => p.availability !== "available").length / roster.length;
@@ -61,9 +65,12 @@ function computeRiskScore(roster: RosterPlayerInput[]): number {
     knownHierarchy.length > 0
       ? knownHierarchy.filter((p) => p.hierarchyLevel !== "starter").length / knownHierarchy.length
       : 0;
-  const teamCounts = new Map<string, number>();
-  for (const p of roster) teamCounts.set(p.team, (teamCounts.get(p.team) ?? 0) + 1);
-  const maxTeamShare = Math.max(...teamCounts.values()) / roster.length;
+  let maxTeamShare = 0;
+  if (roster.length >= 2) {
+    const teamCounts = new Map<string, number>();
+    for (const p of roster) teamCounts.set(p.team, (teamCounts.get(p.team) ?? 0) + 1);
+    maxTeamShare = Math.max(...teamCounts.values()) / roster.length;
+  }
   return Number((0.4 * unavailableShare + 0.3 * backupShare + 0.3 * maxTeamShare).toFixed(2));
 }
 
@@ -97,9 +104,13 @@ export function computeDecisionRecommendation(input: DecisionEngineInput): Decis
   const rosterRisk = buyerRoster
     ? { before: computeRiskScore(buyerRoster), after: computeRiskScore([...buyerRoster, player]) }
     : null;
-  const teamConcentration = buyerRoster
-    ? { before: teamShare(buyerRoster, player.team), after: teamShare([...buyerRoster, player], player.team) }
-    : null;
+  // Richiede almeno 1 giocatore già in rosa (quindi almeno 2 dopo l'acquisto): con rosa vuota
+  // "after" varrebbe sempre 100% per costruzione (un solo giocatore = tutto da una squadra),
+  // stesso principio della soglia in `computeRiskScore` sopra — non e' una vera concentrazione.
+  const teamConcentration =
+    buyerRoster && buyerRoster.length >= 1
+      ? { before: teamShare(buyerRoster, player.team), after: teamShare([...buyerRoster, player], player.team) }
+      : null;
   const rosterFactors: ExplanationFactor[] = [];
   if (rosterRisk) {
     const delta = rosterRisk.after - rosterRisk.before;
