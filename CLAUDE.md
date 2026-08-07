@@ -94,7 +94,7 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 | Profilazione avversari (sez. 12) | 🚧 | Motore puro `apps/api/src/lib/opponents/computeOpponentProfiles.ts` (stesso pattern di Market/Evaluation Engine), ricalcolato ad ogni chiamata a `buildActiveAuctionState` e incluso in `ActiveAuctionState.opponents`. Un profilo per partecipante dai soli `AuctionEntry` già registrati: spesa media e budget residuo (reali), overpay index (prezzo/quotazione medio), concentrazione spesa (Herfindahl-Hirschman rinormalizzato, richiede ≥2 acquisti), preferenza "big" (`valueScore` medio dei giocatori presi), preferenza giovani (età media rispetto al range 18-38), squadra preferita (quota acquisti per squadra). "Aggressività" è una proxy dichiarata (frequenza di sovrapprezzo): il Live Auction Engine registra solo il prezzo finale di ogni inserimento, non i rilanci intermedi che la spec chiederebbe — nessuna aggressività "vera" calcolabile con questo modello dati. Ogni indice non calcolabile per mancanza di dati è `number \| null` (mai un finto 0), visibile in `/auction` come "n/d" nel pannello `OpponentsPanel` |
 | Tratti avversari manuali (non in spec, richiesto esplicitamente dall'utente) | ✅ | L'utente ha confermato di non avere lo storico delle scorse edizioni della lega (offerta ritirata, vedi §10 punto 19/22): al suo posto, 4 campi opzionali su `Participant` (`preferredTeam`, `bidTendency`, `spendingStyle`, `scoutingStyle`, tutti nullable) che l'utente imposta di propria conoscenza diretta sui rivali. `PATCH /participants/:id` (`apps/api/src/routes/auction.ts`) valida i tre float in 0..1. UI: `OpponentTraitsPanel` in `/auction`, sotto `OpponentsPanel` (sez. 12) ma in un riquadro **visivamente separato** (bordo indigo invece di slate, etichettato "impostati da te") — deliberato, per non confondere un dato osservato dagli inserimenti reali con una stima soggettiva dell'utente (principio "Spiegabile"). Sliders (`TraitSlider`) aggiornano lo stato locale ad ogni tick per reattività ma chiamano l'API solo al rilascio (`onMouseUp`/`onTouchEnd`/`onKeyUp`), non ad ogni tick, per non spammare `PATCH` durante il trascinamento; il campo squadra preferita salva su `onBlur`. Salvataggio best-effort (nessun retry/rollback in UI su errore di rete): coerente con la scala "un utente, un'asta live", non vale la complessità di uno stato di sincronizzazione. Esclude sempre il partecipante `isMe` (non ha senso profilare se stessi). Non ancora consumato da `buildAuctionCommentaryPrompt.ts` (il commento AI, sez. sotto): prossimo passo naturale se l'utente lo richiede. |
 | Market Engine (sez. 13) | 🚧 | Motore puro `apps/api/src/lib/market/computeMarketState.ts` (stesso pattern del Player Evaluation Engine: input già estratto dal DB, nessuna dipendenza Prisma/HTTP), ricalcolato ad ogni chiamata a `buildActiveAuctionState` (`routes/auction.ts`) e incluso in `ActiveAuctionState.market`, restituito da `GET /auctions/active` e da ogni mutazione. Calcola tutti e 6 i parametri della spec dai soli `AuctionEntry` già registrati: inflazione prezzi, svalutazione per ruolo, temperatura di mercato (euristica dichiarata su sovra/sotto-pagamento degli ultimi 5 inserimenti, non una probabilità calibrata), budget residuo totale, scarsità titolari per ruolo (frazione di titolari noti già venduti), rilancio medio. "Modifica le valutazioni" (spec) implementato in modo mirato: `EntryBar` in `/auction` mostra un "atteso a mercato" per il giocatore selezionato (quotazione ufficiale rettificata per l'inflazione del suo ruolo) accanto alla quotazione ufficiale, mai al posto di essa — nessun dato persistito viene sovrascritto (vedi §5) |
-| Decision Engine (sez. 14) | 🚧 | Motore puro `apps/api/src/lib/decision/computeDecisionRecommendation.ts`, esposto on-demand da `POST /auctions/:id/decision` (`{playerId, buyerId?, candidatePrice?}`), non pre-calcolato per ogni giocatore ad ogni poll dell'asta. Risponde solo a 2 delle 8 domande della spec — "qual è il prezzo massimo corretto?" e "conviene rilanciare [a questo prezzo]?" — combinando prezzo atteso (Player Evaluation Engine), rettifica di mercato per ruolo (Market Engine) e domanda concorrente reale (partecipanti con `rosterNeeded[ruolo] > 0`, unico proxy di concorrenza disponibile senza dati sui rilanci altrui, stesso limite di `OpponentProfile.aggressiveness`). Le altre 6 domande (miglior rapporto qualità/prezzo tra piu' giocatori, chi chiamare adesso, coppie, rischio rosa complessivo) richiedono di confrontare l'intero pool o l'intera rosa, non solo il giocatore corrente: non implementate, deliberatamente non inventate. UI: pulsante "Conviene rilanciare?" in `EntryBar` (`/auction`), mostra raccomandazione + prezzo massimo corretto + confidenza + tutti i fattori |
+| Decision Engine (sez. 14) | ✅ | Risponde a tutte e 8 le domande della spec. Motore puro `apps/api/src/lib/decision/computeDecisionRecommendation.ts`, esposto on-demand da `POST /auctions/:id/decision` (`{playerId, buyerId?, candidatePrice?}`), non pre-calcolato per ogni giocatore ad ogni poll dell'asta: risponde a 6 domande per-giocatore — "prezzo massimo corretto", "conviene rilanciare?", "quanto vale realmente questo rilancio?" (campo `valuation`, sottopagato/in linea/sovrapagato vs `maxCorrectPrice`), "conviene attendere?" (campo `waitRecommended`, richiede alternative con valueScore comparabile ancora libere nello stesso ruolo, contate dalla rotta), "quanto rischio introduco in rosa?" (campo `rosterRisk`, euristica su indisponibilità/riserve dichiarate/concentrazione per squadra, before/after) e "conviene completare una coppia?" (campo `teamConcentration`, proxy sulla quota di rosa dalla stessa squadra — nessun dato di sinergia reale disponibile). Le ultime 2 domande ("miglior rapporto qualità/prezzo tra più giocatori", "chi dovrei chiamare adesso") confrontano l'intero pool, non un giocatore alla volta: nuovo motore `rankPoolCandidates.ts`, esposto da `POST /auctions/:id/decision/pool` (`{mode, role?, buyerId?, limit?}`), che classifica per punti fantamedia attesi (FSTATS) per credito di prezzo atteso — **non** `PlayerListItem.valueScore` (quello e' solo un percentile della quotazione, non incorpora la produzione, sarebbe stato fuorviante chiamarlo "rapporto qualità/prezzo"); "chi chiamare adesso" filtra sui ruoli mancanti e aggiunge un piccolo bonus quando pochi rivali cercano ancora quel ruolo. UI: `EntryBar` mostra badge compatti per valutazione/attesa/rischio/concentrazione oltre a raccomandazione e fattori; nuovo drawer "🎯 Occasioni" in `/auction` per le 2 domande sul pool (toggle qualità/prezzo vs chi chiamare, filtro ruolo) |
 | Simulatore (sez. 15) | ⬜ | Non iniziato |
 | Report finale (sez. 16) | ⬜ | Non iniziato |
 
@@ -369,17 +369,40 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   "la fonte non lo manda" e "vale zero" coincidono), `injuryAbsenceRate` è nullable e 0 è un
   valore reale diverso da "sconosciuto" — escluso apposta dal loop generico `?? 0` in
   `syncSeasonStats` (import/upsert.ts) per non scrivere un finto 0.
-- **Decision Engine: solo le 2 domande della spec attivabili con i dati di un solo giocatore,
-  non tutte e 8**: "qual è il prezzo massimo corretto" e "conviene rilanciare a X" si rispondono
-  con `PlayerEvaluation` + `MarketState` + fabbisogno di ruolo dei rivali (proxy di domanda
-  concorrente reale, via `rosterNeeded`) per UN giocatore alla volta. Le altre 6 domande
-  ("miglior rapporto qualità/prezzo tra piu' giocatori", "chi chiamare adesso", "conviene
-  completare una coppia", "rischio introdotto nella rosa") richiedono di ragionare sull'intero
-  pool o sull'intera rosa contemporaneamente — un motore diverso, non costruito qui. Endpoint
-  on-demand (`POST /auctions/:id/decision`) invece che pre-calcolato dentro
-  `buildActiveAuctionState`: calcolare una raccomandazione per ogni giocatore ad ogni poll
-  dell'asta sarebbe sprecato, la domanda ha senso solo per il giocatore che si sta valutando in
-  quel momento.
+- **Decision Engine: tutte e 8 le domande della spec, 6 per-giocatore + 2 sul pool intero**:
+  "qual è il prezzo massimo corretto" e "conviene rilanciare a X" (gia' c'erano) restano la base
+  numerica (`maxCorrectPrice`, `overpayRatio`) da cui derivano le altre 4 domande per-giocatore,
+  aggiunte come campi extra sulla STESSA risposta invece di nuovi endpoint (evita di
+  moltiplicare le chiamate per una console che gia' interroga `/decision` ad ogni "Conviene
+  rilanciare?"): `valuation` ("quanto vale realmente questo rilancio?", sottopagato/in
+  linea/sovrapagato), `waitRecommended` ("conviene attendere?", richiede
+  `alternativesAvailable` — altri giocatori dello stesso ruolo, liberi, con valueScore entro il
+  15% — calcolato dalla rotta contando sul pool, non dal motore puro), `rosterRisk` ("rischio
+  rosa", euristica dichiarata su indisponibilità/riserve dichiarate/concentrazione per squadra,
+  before/after) e `teamConcentration` ("coppia", quota di rosa già dalla stessa squadra del
+  candidato, before/after — proxy sulla concentrazione, nessun dato di sinergia reale tipo rete
+  di assist e' disponibile). Tutti e 4 i campi sono `null` quando il dato che richiedono non e'
+  stato fornito (`candidatePrice` per i primi due, `buyerId` per gli ultimi due), stesso pattern
+  `number | null` degli altri motori. Le ultime 2 domande ("miglior rapporto qualità/prezzo tra
+  più giocatori", "chi dovrei chiamare adesso") confrontano l'intero pool, non un giocatore alla
+  volta: nuovo motore separato `rankPoolCandidates.ts`, nuovo endpoint `POST /auctions/:id/
+  decision/pool` (`{mode, role?, buyerId?, limit?}`). **Lezione sul valueScore**: la prima idea
+  per "miglior rapporto qualità/prezzo" era ordinare per `PlayerListItem.valueScore`, gia'
+  disponibile — sbagliato, perche' `valueScore` (`lib/evaluation/value.ts`) e' solo il percentile
+  della *quotazione* tra i giocatori dello stesso ruolo, non incorpora nessuna produzione attesa
+  (lo dice il commento nel file stesso). Usarlo per "qualità/prezzo" avrebbe silenziosamente
+  restituito solo "i giocatori più economici del ruolo", non i migliori affari. Corretto usando
+  `ProductionIndices.expectedFantasyPoints` (FSTATS, ora reale) diviso il prezzo atteso rettificato
+  per l'inflazione di ruolo — una vera stima punti-per-credito, con i candidati senza
+  produzione/prezzo esclusi dalla classifica (mai stimati a caso) e il conteggio degli esclusi
+  in `explanation`. Endpoint on-demand invece che pre-calcolato dentro `buildActiveAuctionState`:
+  calcolare una raccomandazione per ogni giocatore o l'intero pool ad ogni poll dell'asta sarebbe
+  sprecato, entrambe le domande hanno senso solo quando l'utente le pone esplicitamente. UI:
+  `EntryBar` mostra badge compatti (valutazione/attendere/rischio rosa/concentrazione squadra)
+  oltre a raccomandazione e fattori testuali gia' esistenti; nuovo drawer "🎯 Occasioni" in
+  `/auction` (stesso pattern apribile di Obiettivi/Commento AI, vedi sotto) con toggle
+  qualità/prezzo vs chi chiamare adesso e filtro ruolo — "chi chiamare adesso" e' sempre scoperto
+  sul partecipante `isMe`, non ha senso nominare un giocatore per un rivale.
 - **Undo scope: solo l'asta live, non un undo generico per tutta l'app**: richiesto
   esplicitamente dall'utente, con lo scope chiarito esplicitamente ("solo asta live" scelto tra
   le opzioni proposte) per evitare di costruire un log di modifiche generico su ogni entità
@@ -653,10 +676,10 @@ e ha chiesto esplicitamente, come direzione per il resto del frontend:
     una fonte diversa se mai ne emerge una verificabile. Candidati non esplorati: un servizio
     proxy/scraping a pagamento (richiederebbe una API key dell'utente, BYOK) o una fonte diversa
     da Transfermarkt.
-14. ~~Decision Engine (sez. 14)~~ — fatto parzialmente: risponde a "prezzo massimo corretto" e
-    "conviene rilanciare?" per un giocatore alla volta (`POST /auctions/:id/decision`, pulsante
-    in `EntryBar`). Le altre 6 domande della spec restano ⬜ (richiedono di ragionare
-    sull'intero pool/rosa, non un giocatore alla volta — vedi §5).
+14. ~~Decision Engine (sez. 14)~~ — fatto, tutte e 8 le domande della spec: le 6 per-giocatore
+    (`POST /auctions/:id/decision`, badge + fattori in `EntryBar`) e le 2 sul pool intero
+    (`POST /auctions/:id/decision/pool`, drawer "🎯 Occasioni" in `/auction`) — vedi §5 per la
+    correzione sul non usare `valueScore` come proxy di "qualità/prezzo".
 15. ~~Undo per l'asta live~~ — fatto (non in spec, richiesto esplicitamente dall'utente, scope
     limitato all'asta su sua indicazione): pulsante "Annulla ultima azione", soft-delete su
     `AuctionEntry.revokedAt` (vedi §5).

@@ -101,12 +101,61 @@ export interface MarketState {
   updatedAt: string;
 }
 
-/** Risposta del Decision Engine a una domanda operativa durante l'asta (sez. 14). */
+/** Risposta del Decision Engine a una domanda operativa durante l'asta (sez. 14): un giocatore
+ * alla volta (per le domande sul pool intero, vedi `DecisionPoolResult` sotto). Le 4 domande
+ * della spec che si rispondono per-giocatore ("conviene rilanciare?", "prezzo massimo corretto",
+ * "quanto vale realmente questo rilancio?", "conviene attendere?") più le 2 legate alla rosa
+ * dell'acquirente ("rischio rosa", "coppia") condividono la stessa chiamata: i campi extra sono
+ * `null` quando il dato che richiedono non è stato fornito (es. nessun `candidatePrice` per
+ * `valuation`/`waitRecommended`, nessun `buyerId` per `rosterRisk`/`teamConcentration`) — mai un
+ * finto 0, stesso pattern `number | null` degli altri motori. */
 export interface DecisionRecommendation {
   question: string;
   recommendation: string;
   maxCorrectPrice?: number;
   confidence: number; // 0..1
+  explanation: Explanation;
+  /** "Quanto vale realmente questo rilancio?" — solo se e' stato passato un `candidatePrice`:
+   * confronta il prezzo proposto con `maxCorrectPrice`. */
+  valuation: { label: "sottopagato" | "in linea" | "sovrapagato"; deltaVsMaxPrice: number } | null;
+  /** "Conviene attendere?" — true solo se il prezzo proposto e' ben sopra il massimo corretto E
+   * ci sono alternative con valueScore comparabile ancora libere nello stesso ruolo. */
+  waitRecommended: boolean | null;
+  /** Quanti giocatori dello stesso ruolo, ancora liberi, hanno un valueScore comparabile (entro
+   * il 15%) a questo — il dato su cui si basa `waitRecommended`. */
+  alternativesAvailable: number | null;
+  /** "Quanto rischio introduco nella mia rosa acquistando questo giocatore?" — 0..1 (più alto =
+   * più rischioso), calcolato solo se e' stato passato un `buyerId`. */
+  rosterRisk: { before: number; after: number } | null;
+  /** "Conviene completare una coppia?" — quota di giocatori della rosa dell'acquirente già
+   * dalla stessa squadra del candidato, prima e dopo l'acquisto (0..1). Proxy dichiarata sulla
+   * concentrazione per squadra: nessun dato di sinergia reale (rete di assist, coppie titolari)
+   * e' disponibile. */
+  teamConcentration: { before: number; after: number } | null;
+}
+
+/** Un candidato in una classifica del Decision Engine su tutto il pool giocatori (sez. 14):
+ * "miglior rapporto qualità/prezzo" e "chi dovrei chiamare adesso" sono le uniche 2 domande
+ * della spec che richiedono di confrontare l'intero pool invece di un giocatore alla volta,
+ * quindi condividono una risposta diversa da `DecisionRecommendation`. */
+export interface DecisionPoolCandidate {
+  playerId: string;
+  name: string;
+  role: PlayerRole;
+  team: string;
+  price: number | null;
+  /** Punti fantacalcio attesi per credito di quotazione (produzione / prezzo): a differenza di
+   * `PlayerListItem.valueScore` (solo un percentile della quotazione, non incorpora la qualità
+   * attesa) e' una vera stima di rapporto qualità/prezzo, ma richiede `ProductionIndices`
+   * (FSTATS) — `null` se non calcolabile per questo giocatore. */
+  pointsPerCredit: number | null;
+  reason: string;
+}
+
+export interface DecisionPoolResult {
+  mode: "value-for-money" | "next-call";
+  question: string;
+  candidates: DecisionPoolCandidate[];
   explanation: Explanation;
 }
 

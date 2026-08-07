@@ -1,16 +1,36 @@
 import type { FastifyInstance } from "fastify";
-import type { ActiveAuctionState, ParticipantAuctionSummary, PlayerRole } from "@sedinho/shared";
+import type {
+  ActiveAuctionState,
+  HierarchyLevel,
+  ParticipantAuctionSummary,
+  PlayerAvailability,
+  PlayerRole,
+} from "@sedinho/shared";
 import { prisma } from "../db/prisma.js";
 import { toLeagueConfig } from "../lib/league-mapper.js";
 import { toPlayerEvaluation } from "../lib/evaluation-mapper.js";
 import { computeMarketState } from "../lib/market/computeMarketState.js";
 import { computeOpponentProfiles } from "../lib/opponents/computeOpponentProfiles.js";
-import { computeDecisionRecommendation } from "../lib/decision/computeDecisionRecommendation.js";
+import {
+  ALTERNATIVE_VALUE_SCORE_TOLERANCE,
+  computeDecisionRecommendation,
+} from "../lib/decision/computeDecisionRecommendation.js";
+import { rankPoolCandidates } from "../lib/decision/rankPoolCandidates.js";
 
 const ROLES: PlayerRole[] = ["P", "D", "C", "A"];
 
 async function getSingleLeague() {
   return prisma.league.findFirst();
+}
+
+// Un titolare/riserva per giocatore (una fonte puo' aver scritto piu' righe PlayerHierarchy per
+// lo stesso giocatore): si tiene quella con la reliability piu' alta, stesso criterio di
+// routes/players.ts.
+function bestHierarchyLevel(
+  hierarchies: { level: string; reliability: number }[],
+): HierarchyLevel | null {
+  if (hierarchies.length === 0) return null;
+  return [...hierarchies].sort((a, b) => b.reliability - a.reliability)[0]!.level as HierarchyLevel;
 }
 
 /** Ricostruisce lo stato completo dell'asta (sez. 11: "ogni inserimento aggiornerà
@@ -400,7 +420,10 @@ export async function auctionRoutes(app: FastifyInstance) {
     if (!auction) return reply.code(404).send({ error: "Asta non trovata" });
 
     const { playerId, buyerId, candidatePrice } = request.body;
-    const player = await prisma.player.findUnique({ where: { id: playerId } });
+    const player = await prisma.player.findUnique({
+      where: { id: playerId },
+      include: { hierarchies: true },
+    });
     if (!player) return reply.code(400).send({ error: "Giocatore non trovato" });
 
     const [state, latestEvaluationRow] = await Promise.all([
@@ -419,8 +442,64 @@ export async function auctionRoutes(app: FastifyInstance) {
 
     const latestEvaluation = latestEvaluationRow ? toPlayerEvaluation(latestEvaluationRow) : null;
 
+    // "Conviene attendere?" (sez. 14): altri giocatori dello stesso ruolo, ancora liberi in
+    // questa asta, con valueScore comparabile (entro ALTERNATIVE_VALUE_SCORE_TOLERANCE).
+    let alternativesAvailable: number | null = null;
+    if (latestEvaluation?.value.valueScore !== null && latestEvaluation?.value.valueScore !== undefined) {
+      const candidateValueScore = latestEvaluation.value.valueScore;
+      const soldPlayerIds = new Set(state.entries.map((e) => e.player.id));
+      const roleRows = await prisma.player.findMany({
+        where: { role, id: { notIn: [...soldPlayerIds, playerId] } },
+        select: { id: true },
+      });
+      const roleEvaluations = await prisma.playerEvaluation.findMany({
+        where: { playerId: { in: roleRows.map((r) => r.id) } },
+        orderBy: { computedAt: "desc" },
+      });
+      const seen = new Set<string>();
+      let count = 0;
+      for (const row of roleEvaluations) {
+        if (seen.has(row.playerId)) continue;
+        seen.add(row.playerId);
+        const vs = toPlayerEvaluation(row).value.valueScore;
+        if (vs !== null && Math.abs(vs - candidateValueScore) <= ALTERNATIVE_VALUE_SCORE_TOLERANCE) {
+          count += 1;
+        }
+      }
+      alternativesAvailable = count;
+    }
+
+    // "Rischio rosa" e "coppia" (sez. 14): rosa gia' posseduta dall'acquirente, solo se e' stato
+    // passato un buyerId (altrimenti le due domande non sono applicabili).
+    let buyerRoster:
+      | { team: string; availability: PlayerAvailability; hierarchyLevel: HierarchyLevel | null }[]
+      | null = null;
+    if (buyerId) {
+      const buyerPlayerIds = state.entries.filter((e) => e.buyer.id === buyerId).map((e) => e.player.id);
+      const buyerPlayers =
+        buyerPlayerIds.length > 0
+          ? await prisma.player.findMany({
+              where: { id: { in: buyerPlayerIds } },
+              include: { hierarchies: true },
+            })
+          : [];
+      buyerRoster = buyerPlayers.map((p) => ({
+        team: p.team,
+        availability: p.availability as PlayerAvailability,
+        hierarchyLevel: bestHierarchyLevel(p.hierarchies),
+      }));
+    }
+
     const recommendation = computeDecisionRecommendation({
-      player: { id: player.id, name: player.name, role, initialQuotation: player.initialQuotation },
+      player: {
+        id: player.id,
+        name: player.name,
+        role,
+        team: player.team,
+        availability: player.availability as PlayerAvailability,
+        hierarchyLevel: bestHierarchyLevel(player.hierarchies),
+        initialQuotation: player.initialQuotation,
+      },
       evaluation: latestEvaluation
         ? {
             expectedAuctionPrice: latestEvaluation.value.expectedAuctionPrice,
@@ -438,8 +517,71 @@ export async function auctionRoutes(app: FastifyInstance) {
         ? { remainingBudget: buyerSummary.budgetRemaining, rosterNeeded: buyerSummary.rosterNeeded[role] }
         : null,
       candidatePrice: candidatePrice ?? null,
+      alternativesAvailable,
+      buyerRoster,
     });
 
     return recommendation;
+  });
+
+  // Decision Engine sul pool (sez. 14): "miglior rapporto qualità/prezzo" e "chi dovrei
+  // chiamare adesso" — le uniche 2 domande della spec che confrontano piu' giocatori invece di
+  // uno solo. On-demand come /decision, non pre-calcolato ad ogni poll.
+  app.post<{
+    Params: { id: string };
+    Body: { mode: "value-for-money" | "next-call"; role?: PlayerRole; buyerId?: string; limit?: number };
+  }>("/auctions/:id/decision/pool", async (request, reply) => {
+    const auction = await prisma.auction.findUnique({ where: { id: request.params.id } });
+    if (!auction) return reply.code(404).send({ error: "Asta non trovata" });
+
+    const { mode, role, buyerId, limit } = request.body;
+    if (mode !== "value-for-money" && mode !== "next-call") {
+      return reply.code(400).send({ error: "mode deve essere value-for-money o next-call" });
+    }
+
+    const state = await buildActiveAuctionState(auction.id);
+    const soldPlayerIds = new Set(state.entries.map((e) => e.player.id));
+    const buyerSummary = buyerId ? state.participants.find((p) => p.id === buyerId) : undefined;
+
+    const players = await prisma.player.findMany({
+      where: { id: { notIn: [...soldPlayerIds] }, role: role || undefined },
+      include: { evaluations: { orderBy: { computedAt: "desc" }, take: 1 } },
+    });
+
+    const pool = players.map((p) => {
+      const evaluation = p.evaluations[0] ? toPlayerEvaluation(p.evaluations[0]) : null;
+      const baseline = evaluation?.value.expectedAuctionPrice ?? p.initialQuotation ?? null;
+      const roleAdjustment =
+        state.market.roleDeflation[p.role as PlayerRole] ?? state.market.priceInflation;
+      const adjustedPrice = baseline !== null ? Math.round(baseline * (1 + roleAdjustment)) : null;
+      return {
+        id: p.id,
+        name: p.name,
+        role: p.role as PlayerRole,
+        team: p.team,
+        adjustedPrice,
+        expectedFantasyPoints: evaluation?.production.expectedFantasyPoints ?? null,
+      };
+    });
+
+    const rivalsInNeedByRole = Object.fromEntries(
+      ROLES.map((r) => [
+        r,
+        state.participants.filter((p) => p.id !== buyerId && p.rosterNeeded[r] > 0).length,
+      ]),
+    ) as Partial<Record<PlayerRole, number>>;
+
+    const result = rankPoolCandidates(pool, {
+      mode,
+      role: role ?? null,
+      myNeededRoles: buyerSummary
+        ? ROLES.filter((r) => buyerSummary.rosterNeeded[r] > 0)
+        : [],
+      rivalsInNeedByRole,
+      budgetRemaining: buyerSummary?.budgetRemaining ?? null,
+      limit: limit ?? 8,
+    });
+
+    return result;
   });
 }

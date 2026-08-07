@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   ActiveAuctionState,
   AuctionEntryView,
+  DecisionPoolResult,
   DecisionRecommendation,
   LeagueConfig,
   MarketState,
@@ -646,6 +647,37 @@ function EntryBar({
               confidenza {Math.round(decision.confidence * 100)}%
             </span>
           </div>
+          <div className="flex flex-wrap gap-1.5">
+            {decision.valuation && (
+              <span
+                className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${
+                  decision.valuation.label === "sottopagato"
+                    ? "bg-emerald-500/10 text-emerald-400"
+                    : decision.valuation.label === "sovrapagato"
+                      ? "bg-rose-500/10 text-rose-400"
+                      : "bg-slate-800 text-slate-400"
+                }`}
+              >
+                {decision.valuation.label} ({formatSignedPercent(decision.valuation.deltaVsMaxPrice)})
+              </span>
+            )}
+            {decision.waitRecommended && (
+              <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-400">
+                conviene attendere
+              </span>
+            )}
+            {decision.rosterRisk && (
+              <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] font-medium text-slate-400">
+                rischio rosa {Math.round(decision.rosterRisk.before * 100)}%→
+                {Math.round(decision.rosterRisk.after * 100)}%
+              </span>
+            )}
+            {decision.teamConcentration && decision.teamConcentration.after > 0 && (
+              <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] font-medium text-slate-400">
+                {Math.round(decision.teamConcentration.after * 100)}% rosa da questa squadra
+              </span>
+            )}
+          </div>
           <div className="space-y-1">
             {decision.explanation.factors.map((factor, i) => (
               <p key={i} className="text-xs text-slate-400">
@@ -953,6 +985,129 @@ function OpponentTraitsPanel({
   );
 }
 
+const POOL_MODES: { mode: DecisionPoolResult["mode"]; label: string }[] = [
+  { mode: "value-for-money", label: "Miglior qualità/prezzo" },
+  { mode: "next-call", label: "Chi chiamare adesso" },
+];
+
+/** Decision Engine sul pool (sez. 14): le uniche 2 domande della spec che confrontano più
+ * giocatori invece di uno solo, esposte come pannello a richiesta (stesso spirito on-demand di
+ * `EntryBar`, non ricalcolato ad ogni poll dell'asta). "Chi chiamare adesso" e' sempre scoperto
+ * su "io" (il partecipante `isMe`): non ha senso nominare per un rivale. */
+function PoolRankingPanel({
+  auctionId,
+  meId,
+}: {
+  auctionId: string;
+  meId: string | undefined;
+}) {
+  const [mode, setMode] = useState<DecisionPoolResult["mode"]>("value-for-money");
+  const [role, setRole] = useState<PlayerRole | "ALL">("ALL");
+  const [result, setResult] = useState<DecisionPoolResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleRun() {
+    setLoading(true);
+    setError(null);
+    try {
+      setResult(
+        await auctionApi.decidePool(auctionId, {
+          mode,
+          role: role === "ALL" ? undefined : role,
+          buyerId: meId,
+        }),
+      );
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Errore imprevisto.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="flex gap-1 rounded-md border border-slate-800 bg-slate-950 p-1">
+          {POOL_MODES.map((opt) => (
+            <button
+              key={opt.mode}
+              type="button"
+              onClick={() => setMode(opt.mode)}
+              className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                mode === opt.mode
+                  ? "bg-emerald-500 text-slate-950"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <select
+          value={role}
+          onChange={(e) => setRole(e.target.value as PlayerRole | "ALL")}
+          className="rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5 text-xs focus:border-emerald-500 focus:outline-none"
+        >
+          {ROLE_FILTERS.map((r) => (
+            <option key={r} value={r}>
+              {r === "ALL" ? "Tutti i ruoli" : r}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={handleRun}
+          disabled={loading || (mode === "next-call" && !meId)}
+          title={mode === "next-call" && !meId ? "Serve un partecipante \"io\" per questa domanda" : undefined}
+          className="rounded bg-emerald-500 px-3 py-1.5 text-xs font-medium text-slate-950 disabled:opacity-40"
+        >
+          {loading ? "…" : "Calcola"}
+        </button>
+      </div>
+
+      {error && <p className="text-sm text-red-400">{error}</p>}
+
+      {result && (
+        <div className="space-y-2">
+          <p className="text-xs text-slate-500">{result.explanation.summary}</p>
+          {result.candidates.length === 0 ? (
+            <p className="text-sm text-slate-500">Nessun candidato con dati sufficienti.</p>
+          ) : (
+            <div className="divide-y divide-slate-800 rounded-md border border-slate-800">
+              {result.candidates.map((c, i) => (
+                <div key={c.playerId} className="flex items-start gap-2 px-3 py-2 text-sm">
+                  <span className="w-4 shrink-0 text-right text-xs tabular-nums text-slate-600">
+                    {i + 1}
+                  </span>
+                  <PlayerRoleBadge role={c.role} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate font-medium">{c.name}</span>
+                      <span className="text-xs text-slate-500">{c.team}</span>
+                      <span className="ml-auto shrink-0 text-xs tabular-nums text-slate-400">
+                        {c.price !== null ? formatCredits(c.price) : "—"}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500">{c.reason}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {result.explanation.factors
+            .filter((f) => f.label !== "Formula")
+            .map((f, i) => (
+              <p key={i} className="text-[11px] text-slate-600">
+                {f.detail}
+              </p>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AuctionPage() {
   const [league, setLeague] = useState<LeagueConfig | null | undefined>(undefined);
   const [participants, setParticipants] = useState<Participant[] | undefined>(undefined);
@@ -968,7 +1123,7 @@ export function AuctionPage() {
   } | null>(null);
   const [undoMessage, setUndoMessage] = useState<string | null>(null);
   const [undoLoading, setUndoLoading] = useState(false);
-  const [openDrawer, setOpenDrawer] = useState<"obiettivi" | "ai" | null>(null);
+  const [openDrawer, setOpenDrawer] = useState<"obiettivi" | "ai" | "occasioni" | null>(null);
   const shortlist = useShortlist();
 
   useEffect(() => {
@@ -1187,6 +1342,17 @@ export function AuctionPage() {
               </button>
               <button
                 type="button"
+                onClick={() => setOpenDrawer(openDrawer === "occasioni" ? null : "occasioni")}
+                className={`whitespace-nowrap rounded border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  openDrawer === "occasioni"
+                    ? "border-sky-500/50 bg-sky-500/10 text-sky-300"
+                    : "border-slate-700 text-slate-400 hover:border-sky-500/50 hover:text-sky-300"
+                }`}
+              >
+                🎯 Occasioni
+              </button>
+              <button
+                type="button"
                 onClick={handleUndo}
                 disabled={undoLoading}
                 title="Annulla l'ultimo inserimento o l'ultima rimozione in questa asta"
@@ -1265,7 +1431,11 @@ export function AuctionPage() {
               <div className="relative z-50 flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-slate-800 bg-slate-950 p-4 shadow-2xl">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="font-medium">
-                    {openDrawer === "obiettivi" ? "★ Obiettivi" : "💬 Commento AI"}
+                    {openDrawer === "obiettivi"
+                      ? "★ Obiettivi"
+                      : openDrawer === "ai"
+                        ? "💬 Commento AI"
+                        : "🎯 Occasioni"}
                   </h2>
                   <button
                     type="button"
@@ -1286,8 +1456,13 @@ export function AuctionPage() {
                     }}
                     onRemove={shortlist.remove}
                   />
-                ) : (
+                ) : openDrawer === "ai" ? (
                   <AiCommentaryPanel auction={auction} players={players} />
+                ) : (
+                  <PoolRankingPanel
+                    auctionId={auction.id}
+                    meId={auction.participants.find((p) => p.isMe)?.id}
+                  />
                 )}
               </div>
             </div>

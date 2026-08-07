@@ -1,6 +1,7 @@
 import type {
   ActiveAuctionState,
   AuctionUndoResult,
+  DecisionPoolResult,
   DecisionRecommendation,
   HierarchyLevel,
   ImportRunSummary,
@@ -174,6 +175,13 @@ export const auctionApi = {
     auctionId: string,
     body: { playerId: string; buyerId?: string; candidatePrice?: number },
   ) => api.post<DecisionRecommendation>(`/auctions/${auctionId}/decision`, body),
+  /** "Miglior rapporto qualità/prezzo" e "chi dovrei chiamare adesso" (sez. 14): le uniche 2
+   * domande del Decision Engine che confrontano l'intero pool invece di un giocatore alla
+   * volta. */
+  decidePool: (
+    auctionId: string,
+    body: { mode: "value-for-money" | "next-call"; role?: PlayerRole; buyerId?: string; limit?: number },
+  ) => api.post<DecisionPoolResult>(`/auctions/${auctionId}/decision/pool`, body),
   /** "Annulla ultima azione" (sez. 11): un solo livello di undo sull'evento più recente
    * dell'asta (assegnazione o rimozione), non uno storico completo. */
   undo: (auctionId: string) => api.post<AuctionUndoResult>(`/auctions/${auctionId}/undo`, {}),
