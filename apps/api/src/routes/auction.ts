@@ -5,6 +5,7 @@ import type {
   ParticipantAuctionSummary,
   PlayerAvailability,
   PlayerRole,
+  SetPieceType,
 } from "@sedinho/shared";
 import { prisma } from "../db/prisma.js";
 import { toLeagueConfig } from "../lib/league-mapper.js";
@@ -17,6 +18,7 @@ import {
 } from "../lib/decision/computeDecisionRecommendation.js";
 import { rankPoolCandidates } from "../lib/decision/rankPoolCandidates.js";
 import { computeRosterRadar } from "../lib/roster/computeRosterRadar.js";
+import { computeFinalReport } from "../lib/report/computeFinalReport.js";
 
 const ROLES: PlayerRole[] = ["P", "D", "C", "A"];
 
@@ -625,5 +627,75 @@ export async function auctionRoutes(app: FastifyInstance) {
     });
 
     return result;
+  });
+
+  // Report finale (sez. 16): l'asta più recente della lega, attiva o terminata — la pagina
+  // /report la usa per sapere quale id passare a GET /auctions/:id/report senza dover
+  // ricordare l'ultima asta lato client.
+  app.get("/auctions/latest", async (_request, reply) => {
+    const league = await getSingleLeague();
+    if (!league) return reply.code(404).send({ error: "Nessuna lega configurata" });
+    const auction = await prisma.auction.findFirst({
+      where: { leagueId: league.id },
+      orderBy: { startedAt: "desc" },
+    });
+    if (!auction) return reply.code(404).send({ error: "Nessuna asta trovata" });
+    return { id: auction.id, endedAt: auction.endedAt ? auction.endedAt.toISOString() : null };
+  });
+
+  // Report finale (sez. 16): calcolato on-demand per la rosa del partecipante "isMe" — stesso
+  // pattern di Market/Opponent/Decision/Simulator Engine, mai persistito. Funziona anche
+  // un'asta ancora in corso (report parziale), non solo dopo "Termina asta".
+  app.get<{ Params: { id: string } }>("/auctions/:id/report", async (request, reply) => {
+    const auction = await prisma.auction.findUnique({ where: { id: request.params.id } });
+    if (!auction) return reply.code(404).send({ error: "Asta non trovata" });
+
+    const league = await prisma.league.findUniqueOrThrow({ where: { id: auction.leagueId } });
+    const leagueConfig = toLeagueConfig(league);
+
+    const me = await prisma.participant.findFirst({ where: { leagueId: auction.leagueId, isMe: true } });
+    if (!me) {
+      return reply.code(400).send({ error: "Nessun partecipante segnato come 'io' per questa lega." });
+    }
+
+    const entries = await prisma.auctionEntry.findMany({
+      where: { auctionId: auction.id, buyerId: me.id, revokedAt: null },
+      include: {
+        player: {
+          include: {
+            hierarchies: true,
+            setPieceRoles: true,
+            evaluations: { orderBy: { computedAt: "desc" }, take: 1 },
+          },
+        },
+      },
+    });
+
+    const players = entries.map((entry) => {
+      const evaluation = entry.player.evaluations[0] ? toPlayerEvaluation(entry.player.evaluations[0]) : null;
+      return {
+        playerId: entry.player.id,
+        name: entry.player.name,
+        role: entry.player.role as PlayerRole,
+        team: entry.player.team,
+        price: entry.price,
+        hierarchyLevel: bestHierarchyLevel(entry.player.hierarchies),
+        availability: entry.player.availability as PlayerAvailability,
+        valueScore: evaluation?.value.valueScore ?? null,
+        expectedAuctionPrice: evaluation?.value.expectedAuctionPrice ?? null,
+        expectedFantasyPoints: evaluation?.production.expectedFantasyPoints ?? null,
+        rotationRisk: evaluation?.reliability.rotationRisk ?? null,
+        setPieceTypes: entry.player.setPieceRoles.map((sp) => sp.type as SetPieceType),
+      };
+    });
+
+    const report = computeFinalReport({
+      participantId: me.id,
+      auctionEndedAt: auction.endedAt ? auction.endedAt.toISOString() : null,
+      players,
+      budgetInitial: leagueConfig.initialBudget,
+    });
+
+    return report;
   });
 }

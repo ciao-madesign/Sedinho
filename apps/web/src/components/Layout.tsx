@@ -8,6 +8,7 @@ const navItems = [
   { to: "/confronti", label: "Confronti" },
   { to: "/auction", label: "Asta" },
   { to: "/simulatore", label: "Simulatore" },
+  { to: "/report", label: "Report" },
   { to: "/setup", label: "Setup Lega" },
 ];
 

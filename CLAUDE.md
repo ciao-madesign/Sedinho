@@ -97,7 +97,7 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 | Market Engine (sez. 13) | 🚧 | Motore puro `apps/api/src/lib/market/computeMarketState.ts` (stesso pattern del Player Evaluation Engine: input già estratto dal DB, nessuna dipendenza Prisma/HTTP), ricalcolato ad ogni chiamata a `buildActiveAuctionState` (`routes/auction.ts`) e incluso in `ActiveAuctionState.market`, restituito da `GET /auctions/active` e da ogni mutazione. Calcola tutti e 6 i parametri della spec dai soli `AuctionEntry` già registrati: inflazione prezzi, svalutazione per ruolo, temperatura di mercato (euristica dichiarata su sovra/sotto-pagamento degli ultimi 5 inserimenti, non una probabilità calibrata), budget residuo totale, scarsità titolari per ruolo (frazione di titolari noti già venduti), rilancio medio. "Modifica le valutazioni" (spec) implementato in modo mirato: `EntryBar` in `/auction` mostra un "atteso a mercato" per il giocatore selezionato (quotazione ufficiale rettificata per l'inflazione del suo ruolo) accanto alla quotazione ufficiale, mai al posto di essa — nessun dato persistito viene sovrascritto (vedi §5) |
 | Decision Engine (sez. 14) | ✅ | Risponde a tutte e 8 le domande della spec. Motore puro `apps/api/src/lib/decision/computeDecisionRecommendation.ts`, esposto on-demand da `POST /auctions/:id/decision` (`{playerId, buyerId?, candidatePrice?}`), non pre-calcolato per ogni giocatore ad ogni poll dell'asta: risponde a 6 domande per-giocatore — "prezzo massimo corretto", "conviene rilanciare?", "quanto vale realmente questo rilancio?" (campo `valuation`, sottopagato/in linea/sovrapagato vs `maxCorrectPrice`), "conviene attendere?" (campo `waitRecommended`, richiede alternative con valueScore comparabile ancora libere nello stesso ruolo, contate dalla rotta), "quanto rischio introduco in rosa?" (campo `rosterRisk`, euristica su indisponibilità/riserve dichiarate/concentrazione per squadra, before/after) e "conviene completare una coppia?" (campo `teamConcentration`, proxy sulla quota di rosa dalla stessa squadra — nessun dato di sinergia reale disponibile). Le ultime 2 domande ("miglior rapporto qualità/prezzo tra più giocatori", "chi dovrei chiamare adesso") confrontano l'intero pool, non un giocatore alla volta: nuovo motore `rankPoolCandidates.ts`, esposto da `POST /auctions/:id/decision/pool` (`{mode, role?, buyerId?, limit?}`), che classifica per punti fantamedia attesi (FSTATS) per credito di prezzo atteso — **non** `PlayerListItem.valueScore` (quello e' solo un percentile della quotazione, non incorpora la produzione, sarebbe stato fuorviante chiamarlo "rapporto qualità/prezzo"); "chi chiamare adesso" filtra sui ruoli mancanti e aggiunge un piccolo bonus quando pochi rivali cercano ancora quel ruolo. UI: `EntryBar` mostra badge compatti per valutazione/attesa/rischio/concentrazione oltre a raccomandazione e fattori; nuovo drawer "🎯 Occasioni" in `/auction` per le 2 domande sul pool (toggle qualità/prezzo vs chi chiamare, filtro ruolo) |
 | Simulatore (sez. 15) | 🚧 | Scope concordato esplicitamente con l'utente: Monte Carlo per un **singolo giocatore alla volta**, non simulazione dell'intera asta con migliaia di partecipanti simulati (avrebbe richiesto un modello di comportamento per ogni rivale, non tarabile senza uno storico comportamentale reale — offerta ritirata dall'utente, vedi §10). Motore puro `apps/api/src/lib/simulator/simulatePlayerAuction.ts`: classifica il giocatore in una fascia (titolare/prima alternativa/riserva-tappabuchi, da `hierarchyLevel` o fallback su `valueScore`) — quasi ogni rosa tiene 1-2 slot per ruolo riempiti a 1 credito, dettaglio confermato esplicitamente dall'utente, quindi i tappabuchi hanno una distribuzione diversa dai titolari, non un'unica curva per ruolo. Simula migliaia di scenari (log-normale, deviazione legata alla confidenza della valutazione) e restituisce intervallo di prezzo (p10/p50/p90), probabilità di aggiudicazione al budget indicato, la stessa curva letta ad altri budget ("strategie alternative") e un'analisi di sensibilità testuale (Explanation). Rotta `POST /simulate/player` (`{playerId, myBudget, auctionId?, iterations?}`): con `auctionId` di un'asta attiva usa domanda concorrente/inflazione **reali** (stessa logica del Decision Engine); senza, una stima generica pre-asta dalla sola composizione rosa della lega (dichiarata come meno precisa in ogni risposta). Tab dedicata `/simulatore` (coerente con la direzione UX §9), funziona anche senza asta attiva. **Nessuno storico prezzi reale della lega dell'utente e' disponibile**: la distribuzione resta un'euristica dichiarata, informata da alcuni riferimenti qualitativi forniti dall'utente (fasce di prezzo indicative per ruolo/fascia, effetto "fine asta") ma non calibrata su un dataset reale — vedi §5. |
-| Report finale (sez. 16) | ⬜ | Non iniziato |
+| Report finale (sez. 16) | 🚧 | Motore puro `apps/api/src/lib/report/computeFinalReport.ts` (stesso pattern di Market/Opponent/Decision/Simulator Engine), calcolato on-demand da `GET /auctions/:id/report`, mai persistito — nessuno storico separato da tenere sincronizzato, la rosa dopo la fine dell'asta non cambia più. Scoperto sulla rosa del partecipante `isMe` (l'app è single-user, un report "di lega" con tutti i partecipanti non avrebbe senso qui). Tutti gli indicatori della spec, da dati già raccolti (Player Evaluation Engine + `AuctionEntry`), nessuna fonte nuova: valore teorico rosa e punti attesi (con `coverage` esplicito su quanti giocatori hanno il dato), distribuzione del rischio (euristica su indisponibilità/gerarchia, 3 fasce + "n/d"), equilibrio tra reparti (valueScore medio per ruolo), dipendenza da una squadra, copertura rigoristi/piazzati (da `SetPieceRole`), esposizione al turnover (`reliability.rotationRisk`, quasi sempre n/d — Rotation Engine sez. 7 non implementato), confronto costo/valore (solo sui giocatori con prezzo atteso noto, per non sbilanciare il confronto con quelli senza dato) e migliori/peggiori 3 operazioni. Funziona sia ad asta terminata (report completo) sia ancora in corso (report parziale, dichiarato in UI). Nuova rotta di supporto `GET /auctions/latest` (l'asta più recente della lega, attiva o terminata) cosi' la pagina non deve ricordare l'id lato client. Tab dedicata `/report` |
 
 ## 5. Decisioni architetturali prese
 
@@ -448,6 +448,40 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   tab ruolo + select squadra + ordinamento valore/quotazione/prob. titolare/nome) invece di un
   dropdown limitato a 8 risultati filtrato solo per testo — mostrato sempre (non solo quando si
   digita), in un elenco scrollabile, cosi' si può sfogliare senza sapere già il nome.
+- **Transfer Engine ⬜: correzione di una nota precedente in questo file**: una versione
+  precedente di CLAUDE.md affermava che il Transfer Engine (sez. 6) fosse bloccato dalla
+  mancanza dello storico della lega personale dell'utente — impreciso, i due dati sono diversi.
+  Il Transfer Engine chiede dati REALI di calciomercato (trasferimenti tra squadre di Serie A,
+  sez. 6 della spec: "memorizza ogni trasferimento... impatto su titolarità/minutaggio/bonus"),
+  non lo storico delle aste passate dell'utente — richiederebbe lo stesso lavoro già fatto per
+  FSTATS/Fantacalciopedia (trovare una fonte di calciomercato, verificarne il markup), semplicemente
+  non ancora affrontato. Lo storico di lega mancante (offerta ritirata dall'utente, vedi punto 19
+  sotto) serviva solo al Simulatore (sez. 15, già gestito con un'euristica dichiarata) e ai
+  tratti manuali sugli avversari (sez. 12, già fatto). Corretto qui dopo che l'utente ha chiesto
+  esplicitamente chiarimento sul perché mancassero questi dati.
+- **Report finale scoperto sul solo partecipante `isMe`, non su tutta la lega**: coerente con
+  "Sedinho è un'app personale per un singolo fantallenatore" (CLAUDE.md sez. 1) — un report che
+  confronta tutti i partecipanti sarebbe un'estensione naturale ma non richiesta, e la spec
+  stessa parla di "la rosa" al singolare. Motore puro `computeFinalReport.ts`, chiamato
+  on-demand da `GET /auctions/:id/report` invece di essere calcolato/persistito alla chiusura
+  dell'asta (`POST /auctions/:id/end`): stesso principio di tutti gli altri motori (Market/
+  Opponent/Decision/Simulator), la rosa dopo la fine dell'asta è statica quindi ricalcolare ad
+  ogni richiesta costa pochissimo e non serve uno storico separato da tenere sincronizzato.
+  Funziona anche PRIMA che l'asta finisca (report parziale sulla rosa acquistata finora,
+  dichiarato esplicitamente in UI): utile per vedere come si sta evolvendo la propria rosa senza
+  aspettare la fine. **Bug trovato e corretto in revisione** (stesso limite di rete di sempre,
+  nessun test dal vivo possibile — vedi §10 "verifica asta live"): il confronto costo/valore
+  inizialmente divideva la spesa TOTALE della rosa (tutti i giocatori) per il valore teorico
+  calcolato solo sui giocatori con prezzo atteso NOTO — con una copertura parziale (es. 8 giocatori
+  su 11 con prezzo atteso) il confronto risultava sbilanciato, sempre a sfavore dell'utente in
+  proporzione ai giocatori esclusi. Corretto calcolando la spesa anche lei solo sui giocatori con
+  prezzo atteso noto (`spentOnKnownPlayers`), mostrando comunque la spesa totale di rosa come
+  numero informativo separato in `explanation`. Ogni indicatore con dato parziale espone un
+  campo `*Coverage` (0..1, quota di giocatori con quel dato disponibile) invece di stimare
+  silenziosamente sui mancanti — stesso principio "Spiegabile" già applicato ovunque nell'app.
+  Rotta di supporto `GET /auctions/latest` (l'asta più recente della lega, attiva o terminata):
+  la pagina `/report` non ha altrimenti modo di sapere quale id passare senza che l'utente sia
+  già su `/auction` con lo stato in memoria.
 - **Storico fantamedia: bastava far scrivere più stagioni al connettore FSTATS, non un nuovo
   modello**: `SeasonStats` aveva già `@@unique([playerId, season, competition])` e
   `syncSeasonStats` (import/upsert.ts) già faceva upsert per stagione — il gap era solo che
@@ -823,9 +857,16 @@ e ha chiesto esplicitamente, come direzione per il resto del frontend:
     `Layout.tsx`, `LoginPage.tsx` e `index.html` (favicon, `type="image/jpeg"`).
 19. ~~L'utente ha offerto di fornire i dati delle scorse edizioni della propria lega~~ — **offerta
     ritirata esplicitamente**: l'utente ha confermato di non avere lo storico ("non ho lo storico
-    purtroppo"). Il Transfer Engine (sez. 6) resta ⬜ per questo motivo, non per mancanza di
-    tempo — nessuna fonte di dati storici reali della sua lega è disponibile. Al suo posto,
-    l'utente ha chiesto tratti manuali sugli avversari (vedi punto 23, fatto).
+    purtroppo"). Questo storico serviva solo al Simulatore (gia' gestito con un'euristica
+    dichiarata, vedi §5) e a calibrare meglio le valutazioni in generale — **non e' il motivo per
+    cui il Transfer Engine resta ⬜** (correzione: una nota precedente in questo file lo
+    affermava per errore, confondendo due cose diverse). Il Transfer Engine (sez. 6) richiede
+    dati REALI di calciomercato (chi si e' trasferito da quale squadra di Serie A a quale altra
+    in estate), non lo storico della lega personale dell'utente — stesso tipo di lavoro gia'
+    fatto per FSTATS/Fantacalciopedia (trovare una fonte, verificarne il markup), semplicemente
+    non ancora affrontato. Al suo posto (per i tratti sugli avversari, che invece dipendevano
+    davvero dallo storico di lega mancante), l'utente ha chiesto tratti manuali sugli avversari
+    (vedi punto 23, fatto).
 20. ~~Sistema grafico, primo blocco~~ — fatto: `/confronti`, 4 grafici sovrapponibili (fantamedia
     storica, gol/assist, minuti, prezzo) fino a 4 giocatori. Restano ⬜: radar, scatter,
     istogrammi, box plot, heatmap, distribuzioni, timeline; confronto giocatore vs media
@@ -879,3 +920,11 @@ e ha chiesto esplicitamente, come direzione per il resto del frontend:
     implementare, non indovinare una fonte/formato senza il suo input (stesso principio già
     seguito per FSTATS/Fantacalciopedia, vedi §5 "prima di investire tempo a 'indovinare'
     selettori CSS... conviene chiedere all'utente HTML/markup reale").
+30. ~~Radar di rosa: 1 per card + confronto rose in `/confronti`~~ — fatto: vedi §5 sopra.
+    ~~`/confronti` modalità Giocatori con filtri/ordinamento~~ — fatto, vedi §5 sopra.
+31. ~~Report finale (sez. 16)~~ — fatto: `computeFinalReport.ts`, `GET /auctions/:id/report`,
+    tab dedicata `/report`, vedi riga sez. 4 e §5 sopra. Chiude il ciclo stagionale descritto in
+    sez. 1 di questo file ("configurazione lega → database giocatori → aggiornamento manuale
+    dati → asta live con supporto decisionale → report finale") — ultimo anello, ora presente.
+    Resta ⬜: un report "di lega" con tutti i partecipanti confrontati (non richiesto, la spec
+    e l'app restano scoperte sul singolo fantallenatore).

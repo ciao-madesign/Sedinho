@@ -3,6 +3,7 @@ import type {
   AuctionUndoResult,
   DecisionPoolResult,
   DecisionRecommendation,
+  FinalReport,
   HierarchyLevel,
   ImportRunSummary,
   LeagueConfig,
@@ -187,6 +188,12 @@ export const auctionApi = {
   /** "Annulla ultima azione" (sez. 11): un solo livello di undo sull'evento più recente
    * dell'asta (assegnazione o rimozione), non uno storico completo. */
   undo: (auctionId: string) => api.post<AuctionUndoResult>(`/auctions/${auctionId}/undo`, {}),
+  /** Asta più recente della lega (attiva o terminata) — usata da `/report` per sapere quale id
+   * interrogare senza dover ricordare l'ultima asta lato client. */
+  getLatest: () => api.get<{ id: string; endedAt: string | null }>("/auctions/latest"),
+  /** Report finale (sez. 16): calcolato on-demand per la rosa del partecipante "io", funziona
+   * anche con un'asta ancora in corso (report parziale). */
+  getReport: (auctionId: string) => api.get<FinalReport>(`/auctions/${auctionId}/report`),
 };
 
 export const shortlistApi = {
