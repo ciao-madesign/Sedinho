@@ -6,3 +6,4 @@ export * from "./types/evaluation.js";
 export * from "./types/auction.js";
 export * from "./types/import.js";
 export * from "./types/shortlist.js";
+export * from "./types/simulator.js";

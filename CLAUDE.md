@@ -95,7 +95,7 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 | Tratti avversari manuali (non in spec, richiesto esplicitamente dall'utente) | ✅ | L'utente ha confermato di non avere lo storico delle scorse edizioni della lega (offerta ritirata, vedi §10 punto 19/22): al suo posto, 4 campi opzionali su `Participant` (`preferredTeam`, `bidTendency`, `spendingStyle`, `scoutingStyle`, tutti nullable) che l'utente imposta di propria conoscenza diretta sui rivali. `PATCH /participants/:id` (`apps/api/src/routes/auction.ts`) valida i tre float in 0..1. UI: `OpponentTraitsPanel` in `/auction`, sotto `OpponentsPanel` (sez. 12) ma in un riquadro **visivamente separato** (bordo indigo invece di slate, etichettato "impostati da te") — deliberato, per non confondere un dato osservato dagli inserimenti reali con una stima soggettiva dell'utente (principio "Spiegabile"). Sliders (`TraitSlider`) aggiornano lo stato locale ad ogni tick per reattività ma chiamano l'API solo al rilascio (`onMouseUp`/`onTouchEnd`/`onKeyUp`), non ad ogni tick, per non spammare `PATCH` durante il trascinamento; il campo squadra preferita salva su `onBlur`. Salvataggio best-effort (nessun retry/rollback in UI su errore di rete): coerente con la scala "un utente, un'asta live", non vale la complessità di uno stato di sincronizzazione. Esclude sempre il partecipante `isMe` (non ha senso profilare se stessi). Non ancora consumato da `buildAuctionCommentaryPrompt.ts` (il commento AI, sez. sotto): prossimo passo naturale se l'utente lo richiede. |
 | Market Engine (sez. 13) | 🚧 | Motore puro `apps/api/src/lib/market/computeMarketState.ts` (stesso pattern del Player Evaluation Engine: input già estratto dal DB, nessuna dipendenza Prisma/HTTP), ricalcolato ad ogni chiamata a `buildActiveAuctionState` (`routes/auction.ts`) e incluso in `ActiveAuctionState.market`, restituito da `GET /auctions/active` e da ogni mutazione. Calcola tutti e 6 i parametri della spec dai soli `AuctionEntry` già registrati: inflazione prezzi, svalutazione per ruolo, temperatura di mercato (euristica dichiarata su sovra/sotto-pagamento degli ultimi 5 inserimenti, non una probabilità calibrata), budget residuo totale, scarsità titolari per ruolo (frazione di titolari noti già venduti), rilancio medio. "Modifica le valutazioni" (spec) implementato in modo mirato: `EntryBar` in `/auction` mostra un "atteso a mercato" per il giocatore selezionato (quotazione ufficiale rettificata per l'inflazione del suo ruolo) accanto alla quotazione ufficiale, mai al posto di essa — nessun dato persistito viene sovrascritto (vedi §5) |
 | Decision Engine (sez. 14) | ✅ | Risponde a tutte e 8 le domande della spec. Motore puro `apps/api/src/lib/decision/computeDecisionRecommendation.ts`, esposto on-demand da `POST /auctions/:id/decision` (`{playerId, buyerId?, candidatePrice?}`), non pre-calcolato per ogni giocatore ad ogni poll dell'asta: risponde a 6 domande per-giocatore — "prezzo massimo corretto", "conviene rilanciare?", "quanto vale realmente questo rilancio?" (campo `valuation`, sottopagato/in linea/sovrapagato vs `maxCorrectPrice`), "conviene attendere?" (campo `waitRecommended`, richiede alternative con valueScore comparabile ancora libere nello stesso ruolo, contate dalla rotta), "quanto rischio introduco in rosa?" (campo `rosterRisk`, euristica su indisponibilità/riserve dichiarate/concentrazione per squadra, before/after) e "conviene completare una coppia?" (campo `teamConcentration`, proxy sulla quota di rosa dalla stessa squadra — nessun dato di sinergia reale disponibile). Le ultime 2 domande ("miglior rapporto qualità/prezzo tra più giocatori", "chi dovrei chiamare adesso") confrontano l'intero pool, non un giocatore alla volta: nuovo motore `rankPoolCandidates.ts`, esposto da `POST /auctions/:id/decision/pool` (`{mode, role?, buyerId?, limit?}`), che classifica per punti fantamedia attesi (FSTATS) per credito di prezzo atteso — **non** `PlayerListItem.valueScore` (quello e' solo un percentile della quotazione, non incorpora la produzione, sarebbe stato fuorviante chiamarlo "rapporto qualità/prezzo"); "chi chiamare adesso" filtra sui ruoli mancanti e aggiunge un piccolo bonus quando pochi rivali cercano ancora quel ruolo. UI: `EntryBar` mostra badge compatti per valutazione/attesa/rischio/concentrazione oltre a raccomandazione e fattori; nuovo drawer "🎯 Occasioni" in `/auction` per le 2 domande sul pool (toggle qualità/prezzo vs chi chiamare, filtro ruolo) |
-| Simulatore (sez. 15) | ⬜ | Non iniziato |
+| Simulatore (sez. 15) | 🚧 | Scope concordato esplicitamente con l'utente: Monte Carlo per un **singolo giocatore alla volta**, non simulazione dell'intera asta con migliaia di partecipanti simulati (avrebbe richiesto un modello di comportamento per ogni rivale, non tarabile senza uno storico comportamentale reale — offerta ritirata dall'utente, vedi §10). Motore puro `apps/api/src/lib/simulator/simulatePlayerAuction.ts`: classifica il giocatore in una fascia (titolare/prima alternativa/riserva-tappabuchi, da `hierarchyLevel` o fallback su `valueScore`) — quasi ogni rosa tiene 1-2 slot per ruolo riempiti a 1 credito, dettaglio confermato esplicitamente dall'utente, quindi i tappabuchi hanno una distribuzione diversa dai titolari, non un'unica curva per ruolo. Simula migliaia di scenari (log-normale, deviazione legata alla confidenza della valutazione) e restituisce intervallo di prezzo (p10/p50/p90), probabilità di aggiudicazione al budget indicato, la stessa curva letta ad altri budget ("strategie alternative") e un'analisi di sensibilità testuale (Explanation). Rotta `POST /simulate/player` (`{playerId, myBudget, auctionId?, iterations?}`): con `auctionId` di un'asta attiva usa domanda concorrente/inflazione **reali** (stessa logica del Decision Engine); senza, una stima generica pre-asta dalla sola composizione rosa della lega (dichiarata come meno precisa in ogni risposta). Tab dedicata `/simulatore` (coerente con la direzione UX §9), funziona anche senza asta attiva. **Nessuno storico prezzi reale della lega dell'utente e' disponibile**: la distribuzione resta un'euristica dichiarata, informata da alcuni riferimenti qualitativi forniti dall'utente (fasce di prezzo indicative per ruolo/fascia, effetto "fine asta") ma non calibrata su un dataset reale — vedi §5. |
 | Report finale (sez. 16) | ⬜ | Non iniziato |
 
 ## 5. Decisioni architetturali prese
@@ -355,6 +355,42 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   priorità" sempre in fondo (`?? 99` nel comparatore). Etichette/colori (`priorityLabels`/
   `priorityBadgeClass`) centralizzati in `apps/web/src/lib/shortlistFormat.ts` invece di
   duplicati tra `ShortlistPage` e il pannello compatto in `/auction`, per restare coerenti.
+- **Simulatore: singolo giocatore alla volta, non l'intera asta**: la spec (sez. 15) parla di
+  "migliaia di aste" simulate con "comportamento storico dei partecipanti" — ma l'utente ha
+  confermato di non avere storico (vedi punto 19/22 sotto), e simulare l'intera asta avrebbe
+  comunque richiesto un modello di comportamento/offerta per OGNI rivale, non tarabile senza
+  dati comportamentali reali. Scelta esplicita con l'utente (`AskUserQuestion`): un Monte Carlo
+  per un giocatore alla volta, che riusa gli stessi dati del Decision Engine appena esteso
+  (rivali in cerca del ruolo, inflazione di mercato) invece di inventare un modello
+  multi-agente. **L'utente ha comunque fornito alcuni riferimenti qualitativi** prima di
+  partire (fasce di prezzo indicative per ruolo/fascia in stagioni-record passate dei
+  giocatori citati, l'effetto "quando i big sono venduti i rimasti del ruolo costano di più",
+  e soprattutto che quasi ogni rosa tiene 1-2 slot per ruolo riempiti a 1 credito) — usati per
+  informare la forma del modello (fasce titolare/rincalzo/tappabuchi con distribuzioni diverse,
+  non un'unica curva per ruolo) ma **non trattati come un dataset calibrabile**: sono aneddoti
+  su singoli giocatori in stagioni diverse, non abbastanza osservazioni per stimare una vera
+  deviazione standard. Il motore resta un'euristica dichiarata, documentata come tale in ogni
+  risposta (`explanation`), non spacciata per una previsione calibrata.
+- **Fascia titolare/rincalzo/tappabuchi stimata dal motore, non chiesta all'utente**: scelta
+  esplicita con l'utente ("stimi da solo") invece di aggiungere un input manuale
+  "titolare o riserva?" ad ogni simulazione. Usa `hierarchyLevel` (gerarchia reale da
+  Fantacalciopedia) quando disponibile; se assente, fallback dichiarato sul `valueScore`
+  (percentile della quotazione nel ruolo) — meno affidabile, la spiegazione lo dice esplicitamente.
+  I tappabuchi (`hierarchyLevel: "second-alternate"` o fallback equivalente) hanno il 70% di
+  probabilità di essere simulati esattamente a 1 credito (costante dichiarata, non calibrata),
+  il resto segue comunque la distribuzione normale — cattura il caso raro in cui anche un
+  tappabuchi viene pagato di più per scarsità estrema di fine asta, senza fingere che sia la
+  norma.
+- **Simulatore funziona con o senza un'asta attiva**: la spec dice "prima dell'asta", ma i dati
+  più accurati (domanda concorrente reale, inflazione di mercato) esistono solo dentro
+  un'asta già avviata (stesso identico limite del Decision Engine). `POST /simulate/player`
+  accetta un `auctionId` opzionale: se c'è un'asta attiva la usa (dati reali, `dataSource:
+  "auction"`), altrimenti stima i rivali in cerca di quel ruolo dalla sola composizione rosa
+  della lega (`dataSource: "generic"`, quota di slot per ruolo × partecipanti previsti — non
+  sappiamo ancora chi sono i rivali ne' cosa hanno comprato). Ogni risposta dichiara quale delle
+  due fonti ha usato, mai silenziosamente. La pagina dedicata `/simulatore` (coerente con
+  CLAUDE.md sez. 9, "tab dedicate" per aree funzionali principali) precompila il budget dal
+  budget residuo reale se c'è un'asta attiva, altrimenti dal budget iniziale della lega.
 - **Storico fantamedia: bastava far scrivere più stagioni al connettore FSTATS, non un nuovo
   modello**: `SeasonStats` aveva già `@@unique([playerId, season, competition])` e
   `syncSeasonStats` (import/upsert.ts) già faceva upsert per stagione — il gap era solo che
@@ -726,6 +762,12 @@ e ha chiesto esplicitamente, come direzione per il resto del frontend:
     ~~Filtri/ordinamento in `/shortlist`~~ — fatto, stesso pattern di `PlayersPage`. ~~Obiettivi e
     Commento AI come pannelli laterali apribili in `/auction`~~ — fatto (drawer a destra, due
     pulsanti in testata). Non ancora fatto: collegare i tratti manuali al prompt del Commento AI
-    (`buildAuctionCommentaryPrompt.ts` li ignora ancora) e alle altre 6 domande non coperte del
-    Decision Engine (sez. 14) — candidati naturali per il prossimo giro, non richiesti
-    esplicitamente finora.
+    (`buildAuctionCommentaryPrompt.ts` li ignora ancora) — candidato naturale per il prossimo
+    giro, non richiesto esplicitamente finora.
+24. ~~Decision Engine, le altre 6 domande~~ — fatto: vedi riga sez. 14 e §5 sopra, tutte e 8 le
+    domande della spec ora risposte. ~~Priorità sugli obiettivi (prima/seconda/terza scelta)~~ —
+    fatto: vedi riga Shortlist sez. 4 e §5 sopra.
+25. ~~Simulatore, primo blocco (sez. 15)~~ — fatto: Monte Carlo per singolo giocatore, tab
+    dedicata `/simulatore`, vedi riga sez. 4 e §5 sopra. Resta ⬜: simulazione dell'intera asta
+    (scope esplicitamente non scelto ora), calibrazione su dati storici reali (nessuno
+    disponibile).

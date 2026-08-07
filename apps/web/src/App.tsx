@@ -7,6 +7,7 @@ import { PlayerDetailPage } from "./pages/PlayerDetailPage.js";
 import { AuctionPage } from "./pages/AuctionPage.js";
 import { ShortlistPage } from "./pages/ShortlistPage.js";
 import { ComparePage } from "./pages/ComparePage.js";
+import { SimulatorPage } from "./pages/SimulatorPage.js";
 import { LoginPage } from "./pages/LoginPage.js";
 import { useAuth } from "./lib/AuthContext.js";
 
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="/shortlist" element={<ShortlistPage />} />
         <Route path="/confronti" element={<ComparePage />} />
         <Route path="/auction" element={<AuctionPage />} />
+        <Route path="/simulatore" element={<SimulatorPage />} />
         <Route path="/setup" element={<SetupWizardPage />} />
       </Route>
     </Routes>

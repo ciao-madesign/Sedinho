@@ -15,6 +15,7 @@ import type {
   SetPieceType,
   ShortlistEntryView,
   ShortlistPriority,
+  SimulationResult,
 } from "@sedinho/shared";
 
 const API_BASE = "/api";
@@ -198,4 +199,16 @@ export const shortlistApi = {
   updatePriority: (id: string, priority: ShortlistPriority | null) =>
     api.patch<{ id: string }>(`/shortlist/${id}`, { priority }),
   remove: (id: string) => api.delete<{ removed: true }>(`/shortlist/${id}`),
+};
+
+export const simulatorApi = {
+  /** Simulatore Monte Carlo per singolo giocatore (sez. 15): usa i dati reali di un'asta in
+   * corso se `auctionId` è passato, altrimenti una stima generica pre-asta dalla composizione
+   * rosa della lega. */
+  simulatePlayer: (body: {
+    playerId: string;
+    myBudget: number;
+    auctionId?: string;
+    iterations?: number;
+  }) => api.post<SimulationResult>("/simulate/player", body),
 };

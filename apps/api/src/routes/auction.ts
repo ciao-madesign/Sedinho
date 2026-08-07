@@ -37,7 +37,7 @@ function bestHierarchyLevel(
  * immediatamente" budget residui e fabbisogni di ruolo), ricalcolato da zero ad ogni chiamata
  * invece di essere tenuto in cache: per la scala di un'asta personale (poche decine di
  * inserimenti) è più semplice e robusto di uno stato incrementale da tenere sincronizzato. */
-async function buildActiveAuctionState(auctionId: string): Promise<ActiveAuctionState> {
+export async function buildActiveAuctionState(auctionId: string): Promise<ActiveAuctionState> {
   const auction = await prisma.auction.findUniqueOrThrow({
     where: { id: auctionId },
     include: {
