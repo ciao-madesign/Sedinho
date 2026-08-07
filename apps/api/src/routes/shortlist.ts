@@ -50,6 +50,7 @@ export async function shortlistRoutes(app: FastifyInstance) {
         id: entry.id,
         playerId: entry.playerId,
         note: entry.note,
+        priority: entry.priority as ShortlistEntryView["priority"],
         createdAt: entry.createdAt.toISOString(),
         player: {
           id: entry.player.id,
@@ -72,12 +73,15 @@ export async function shortlistRoutes(app: FastifyInstance) {
     });
   });
 
-  app.post<{ Body: { playerId: string; note?: string } }>(
+  app.post<{ Body: { playerId: string; note?: string; priority?: number | null } }>(
     "/shortlist",
     async (request, reply) => {
-      const { playerId, note } = request.body;
+      const { playerId, note, priority } = request.body;
       const player = await prisma.player.findUnique({ where: { id: playerId } });
       if (!player) return reply.code(400).send({ error: "Giocatore non trovato" });
+      if (priority !== undefined && priority !== null && ![1, 2, 3].includes(priority)) {
+        return reply.code(400).send({ error: "priority deve essere 1, 2, 3 o null" });
+      }
 
       const existing = await prisma.shortlistEntry.findUnique({ where: { playerId } });
       if (existing) {
@@ -85,20 +89,27 @@ export async function shortlistRoutes(app: FastifyInstance) {
       }
 
       const created = await prisma.shortlistEntry.create({
-        data: { playerId, note: note?.trim() || null },
+        data: { playerId, note: note?.trim() || null, priority: priority ?? null },
       });
       return reply.code(201).send(created);
     },
   );
 
-  app.patch<{ Params: { id: string }; Body: { note?: string } }>(
+  app.patch<{ Params: { id: string }; Body: { note?: string; priority?: number | null } }>(
     "/shortlist/:id",
     async (request, reply) => {
       const entry = await prisma.shortlistEntry.findUnique({ where: { id: request.params.id } });
       if (!entry) return reply.code(404).send({ error: "Obiettivo non trovato" });
+      const { note, priority } = request.body;
+      if (priority !== undefined && priority !== null && ![1, 2, 3].includes(priority)) {
+        return reply.code(400).send({ error: "priority deve essere 1, 2, 3 o null" });
+      }
       const updated = await prisma.shortlistEntry.update({
         where: { id: entry.id },
-        data: { note: request.body.note?.trim() || null },
+        data: {
+          ...(note !== undefined && { note: note.trim() || null }),
+          ...(priority !== undefined && { priority }),
+        },
       });
       return updated;
     },

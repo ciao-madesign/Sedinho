@@ -11,6 +11,7 @@ import type {
   PlayerListItem,
   PlayerRole,
   ShortlistEntryView,
+  ShortlistPriority,
 } from "@sedinho/shared";
 import { ApiError, auctionApi, leaguesApi, participantsApi, playersApi } from "../lib/api.js";
 import { PlayerRoleBadge } from "../components/PlayerRoleBadge.js";
@@ -18,6 +19,7 @@ import { ShortlistStarButton } from "../components/ShortlistStarButton.js";
 import { AiCommentaryPanel } from "../components/AiCommentaryPanel.js";
 import { useShortlist } from "../lib/useShortlist.js";
 import { formatCredits, roleLabels } from "../lib/playerFormat.js";
+import { priorityBadgeClass } from "../lib/shortlistFormat.js";
 
 const ROLE_ORDER: PlayerRole[] = ["P", "D", "C", "A"];
 const ROLE_FILTERS: (PlayerRole | "ALL")[] = ["ALL", "P", "D", "C", "A"];
@@ -402,12 +404,14 @@ function ShortlistPanel({
   selectedId,
   onSelect,
   onRemove,
+  onSetPriority,
 }: {
   entries: ShortlistEntryView[];
   soldMap: Map<string, SoldInfo>;
   selectedId: string | null;
   onSelect: (player: PlayerListItem) => void;
   onRemove: (entryId: string) => void;
+  onSetPriority: (entryId: string, priority: ShortlistPriority | null) => void;
 }) {
   if (entries.length === 0) {
     return (
@@ -417,10 +421,15 @@ function ShortlistPanel({
     );
   }
 
+  // Priorità (1 = prima scelta) prima, poi chi non ha ancora una priorità assegnata — cosi' la
+  // shortlist si riordina da sola man mano che l'utente la imposta, senza un controllo di
+  // ordinamento separato in questo pannello compatto (a differenza di /shortlist).
+  const sorted = [...entries].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+
   return (
     <div className="rounded-lg border border-amber-500/20 bg-amber-500/[0.03] p-3">
       <div className="flex flex-col gap-2">
-        {entries.map((entry) => {
+        {sorted.map((entry) => {
           const sold = soldMap.get(entry.playerId);
           if (sold) {
             return (
@@ -445,6 +454,24 @@ function ShortlistPanel({
                   : "border-slate-800 bg-slate-900"
               }`}
             >
+              <select
+                value={entry.priority ?? ""}
+                onChange={(e) =>
+                  onSetPriority(
+                    entry.id,
+                    e.target.value ? (Number(e.target.value) as ShortlistPriority) : null,
+                  )
+                }
+                title="Priorità"
+                className={`rounded px-1 py-0.5 text-[11px] font-medium focus:outline-none ${
+                  entry.priority ? priorityBadgeClass(entry.priority) : "bg-slate-800 text-slate-500"
+                }`}
+              >
+                <option value="">—</option>
+                <option value="1">1ª</option>
+                <option value="2">2ª</option>
+                <option value="3">3ª</option>
+              </select>
               <button
                 type="button"
                 onClick={() =>
@@ -473,7 +500,7 @@ function ShortlistPanel({
               <button
                 type="button"
                 onClick={() => onRemove(entry.id)}
-                className="text-slate-700 hover:text-red-400"
+                className="ml-auto text-slate-700 hover:text-red-400"
                 title="Rimuovi dagli obiettivi"
               >
                 ✕
@@ -1455,6 +1482,7 @@ export function AuctionPage() {
                       setOpenDrawer(null);
                     }}
                     onRemove={shortlist.remove}
+                    onSetPriority={shortlist.setPriority}
                   />
                 ) : openDrawer === "ai" ? (
                   <AiCommentaryPanel auction={auction} players={players} />

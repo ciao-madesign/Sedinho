@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ShortlistEntryView } from "@sedinho/shared";
+import type { ShortlistEntryView, ShortlistPriority } from "@sedinho/shared";
 import { shortlistApi } from "./api.js";
 
 /** Stato condiviso della shortlist (obiettivi d'asta dell'utente), usato da PlayersPage,
@@ -39,5 +39,10 @@ export function useShortlist() {
     else await add(playerId);
   }
 
-  return { entries, entryByPlayerId, add, remove, toggle, reload };
+  async function setPriority(entryId: string, priority: ShortlistPriority | null) {
+    await shortlistApi.updatePriority(entryId, priority);
+    reload();
+  }
+
+  return { entries, entryByPlayerId, add, remove, toggle, setPriority, reload };
 }

@@ -1,12 +1,18 @@
 import type { PlayerAvailability, PlayerRole } from "./common.js";
 import type { HierarchyLevel, SetPieceType } from "./player.js";
 
+/** Fascia di priorità impostata a mano dall'utente su un obiettivo (richiesto esplicitamente,
+ * non in spec): 1 = prima scelta, 2 = seconda, 3 = terza. `null` = non ancora assegnata, mai
+ * un default implicito — un obiettivo senza priorità non è "terza scelta" per default. */
+export type ShortlistPriority = 1 | 2 | 3;
+
 /** Un obiettivo d'asta dell'utente: Sedinho e' single-user (vedi CLAUDE.md sez. 5), quindi
  * nessuna scoping per lega/partecipante, solo "i giocatori che voglio tenere d'occhio". */
 export interface ShortlistEntry {
   id: string;
   playerId: string;
   note: string | null;
+  priority: ShortlistPriority | null;
   createdAt: string;
 }
 
@@ -17,6 +23,7 @@ export interface ShortlistEntryView {
   id: string;
   playerId: string;
   note: string | null;
+  priority: ShortlistPriority | null;
   createdAt: string;
   player: {
     id: string;

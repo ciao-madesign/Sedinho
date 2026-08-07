@@ -108,6 +108,12 @@ model ShortlistEntry {
   playerId  String   @unique
   player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
   note      String?
+  // Priorità impostata a mano dall'utente (1 = prima scelta, 2 = seconda, 3 = terza), richiesta
+  // esplicitamente per riordinare/filtrare gli obiettivi prima dell'asta. null = non ancora
+  // assegnata, mai un default fittizio (un obiettivo senza priorità non è implicitamente "terza
+  // scelta"). Nessun vincolo di unicità per valore: più obiettivi possono condividere la stessa
+  // fascia di priorità.
+  priority  Int?
   createdAt DateTime @default(now())
 }
 

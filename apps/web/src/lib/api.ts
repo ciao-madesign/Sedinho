@@ -14,6 +14,7 @@ import type {
   PlayerRole,
   SetPieceType,
   ShortlistEntryView,
+  ShortlistPriority,
 } from "@sedinho/shared";
 
 const API_BASE = "/api";
@@ -193,5 +194,8 @@ export const shortlistApi = {
     api.post<{ id: string }>("/shortlist", { playerId, note }),
   updateNote: (id: string, note: string) =>
     api.patch<{ id: string }>(`/shortlist/${id}`, { note }),
+  /** Fascia di priorità (richiesta esplicitamente, non in spec): 1/2/3 o `null` per rimuoverla. */
+  updatePriority: (id: string, priority: ShortlistPriority | null) =>
+    api.patch<{ id: string }>(`/shortlist/${id}`, { priority }),
   remove: (id: string) => api.delete<{ removed: true }>(`/shortlist/${id}`),
 };

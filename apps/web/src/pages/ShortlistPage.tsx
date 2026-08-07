@@ -1,21 +1,25 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import type { PlayerRole } from "@sedinho/shared";
+import type { PlayerRole, ShortlistPriority } from "@sedinho/shared";
 import { PlayerRoleBadge } from "../components/PlayerRoleBadge.js";
 import { ShortlistStarButton } from "../components/ShortlistStarButton.js";
 import { useShortlist } from "../lib/useShortlist.js";
 import { formatCredits, formatPercent, setPieceLabels } from "../lib/playerFormat.js";
+import { priorityBadgeClass, priorityLabels } from "../lib/shortlistFormat.js";
 
-type SortKey = "name" | "quotation" | "value" | "starter";
+type SortKey = "priority" | "name" | "quotation" | "value" | "starter";
 
 const roleFilters: (PlayerRole | "ALL")[] = ["ALL", "P", "D", "C", "A"];
 
 const sortOptions: { key: SortKey; label: string }[] = [
+  { key: "priority", label: "Priorità" },
   { key: "value", label: "Valore" },
   { key: "quotation", label: "Quotazione" },
   { key: "starter", label: "Prob. titolare" },
   { key: "name", label: "Nome" },
 ];
+
+const priorityFilters: (ShortlistPriority | "ALL" | "NONE")[] = ["ALL", 1, 2, 3, "NONE"];
 
 /** Sezione "Obiettivi" (shortlist): i giocatori che l'utente vuole tenere d'occhio, con
  * valutazioni live (stessa fonte di PlayersPage/PlayerDetailPage, il Player Evaluation Engine
@@ -29,8 +33,9 @@ export function ShortlistPage() {
   const shortlist = useShortlist();
   const [role, setRole] = useState<PlayerRole | "ALL">("ALL");
   const [team, setTeam] = useState("ALL");
+  const [priorityFilter, setPriorityFilter] = useState<ShortlistPriority | "ALL" | "NONE">("ALL");
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("value");
+  const [sortKey, setSortKey] = useState<SortKey>("priority");
 
   const teams = useMemo(() => {
     if (!shortlist.entries) return [];
@@ -43,9 +48,12 @@ export function ShortlistPage() {
     return shortlist.entries
       .filter((e) => role === "ALL" || e.player.role === role)
       .filter((e) => team === "ALL" || e.player.team === team)
+      .filter((e) => priorityFilter === "ALL" || (priorityFilter === "NONE" ? e.priority === null : e.priority === priorityFilter))
       .filter((e) => !query || e.player.name.toLowerCase().includes(query))
       .sort((a, b) => {
         switch (sortKey) {
+          case "priority":
+            return (a.priority ?? 99) - (b.priority ?? 99);
           case "quotation":
             return (b.player.initialQuotation ?? -1) - (a.player.initialQuotation ?? -1);
           case "value":
@@ -56,7 +64,7 @@ export function ShortlistPage() {
             return a.player.name.localeCompare(b.player.name);
         }
       });
-  }, [shortlist.entries, role, team, search, sortKey]);
+  }, [shortlist.entries, role, team, priorityFilter, search, sortKey]);
 
   if (shortlist.entries === undefined) {
     return <p className="text-slate-400">Caricamento…</p>;
@@ -115,6 +123,22 @@ export function ShortlistPage() {
                 </option>
               ))}
             </select>
+            <div className="flex gap-1 rounded-md border border-slate-800 bg-slate-900 p-1">
+              {priorityFilters.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPriorityFilter(p)}
+                  className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                    priorityFilter === p
+                      ? "bg-emerald-500 text-slate-950"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {p === "ALL" ? "Tutte" : p === "NONE" ? "Senza priorità" : priorityLabels[p]}
+                </button>
+              ))}
+            </div>
             <select
               value={sortKey}
               onChange={(e) => setSortKey(e.target.value as SortKey)}
@@ -136,6 +160,7 @@ export function ShortlistPage() {
             <thead className="bg-slate-900 text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="w-8 px-4 py-2.5 font-medium"></th>
+                <th className="px-4 py-2.5 font-medium">Priorità</th>
                 <th className="px-4 py-2.5 font-medium">Giocatore</th>
                 <th className="px-4 py-2.5 font-medium text-right">Quotazione</th>
                 <th className="px-4 py-2.5 font-medium text-right">Valore</th>
@@ -149,6 +174,25 @@ export function ShortlistPage() {
                 <tr key={entry.id} className="transition-colors hover:bg-slate-900/60">
                   <td className="px-4 py-2.5">
                     <ShortlistStarButton active onToggle={() => shortlist.remove(entry.id)} />
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <select
+                      value={entry.priority ?? ""}
+                      onChange={(e) =>
+                        shortlist.setPriority(
+                          entry.id,
+                          e.target.value ? (Number(e.target.value) as ShortlistPriority) : null,
+                        )
+                      }
+                      className={`rounded px-1.5 py-0.5 text-xs font-medium focus:outline-none ${
+                        entry.priority ? priorityBadgeClass(entry.priority) : "bg-slate-800 text-slate-500"
+                      }`}
+                    >
+                      <option value="">—</option>
+                      <option value="1">{priorityLabels[1]}</option>
+                      <option value="2">{priorityLabels[2]}</option>
+                      <option value="3">{priorityLabels[3]}</option>
+                    </select>
                   </td>
                   <td className="px-4 py-2.5">
                     <Link
