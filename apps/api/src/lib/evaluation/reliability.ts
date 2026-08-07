@@ -22,10 +22,11 @@ const STARTER_WEIGHT: Record<HierarchyLevel, number> = {
 };
 
 /** Indici di Affidabilità (sez. 8). `hierarchy` viene da Fantacalciopedia (gerarchie di
- * ruolo), `rotation` da un profilo di rotazione a livello squadra: nessuna delle due fonti
- * e' ancora popolata da un connettore reale (solo Fantacalcio.it, quotazioni, e' attivo),
- * quindi con i dati odierni questa categoria restituisce sempre `null` — ma la logica e' gia'
- * pronta a calcolare valori reali non appena quelle righe esistono nel DB. */
+ * ruolo, connettore reale) e `rotation` dal Rotation Engine (sez. 7,
+ * `lib/rotation/updateTeamRotationProfiles.ts`, ricalcolato ad ogni "Aggiorna Database" prima
+ * di questa valutazione): entrambe ora popolate quando la squadra/giocatore hanno dati
+ * sufficienti — `null` resta un'informazione onesta ("dato non disponibile per QUESTO
+ * giocatore/squadra"), non un limite strutturale come prima. */
 export function computeReliabilityIndices(
   hierarchy: HierarchyInput | undefined,
   rotation: RotationInput | undefined,

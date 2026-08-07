@@ -69,4 +69,7 @@ export interface ImportRunSummary {
   finishedAt: string;
   results: ImportSourceResult[];
   evaluation: EvaluationRunSummary;
+  /** Cambi squadra rilevati in questo giro e trasformati in righe `Transfer` (sez. 6, Transfer
+   * Engine) — vedi `import/upsert.ts`/`import/runImport.ts`. */
+  transfersDetected: number;
 }

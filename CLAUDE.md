@@ -82,8 +82,8 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
 | Setup Wizard (sez. 3) | ✅ | 4 step reali (Struttura, Economia, Regolamento, Riepilogo) in `SetupWizardPage` + `components/setup-wizard/*`, collegati a `POST`/`PUT /leagues`; precompilato (editabile) con il regolamento reale "Travedona Serie A"; regole (`ParsedRule[]`) inserite tramite form strutturato manuale, non parsing automatico (vedi §5) |
 | Database centrale giocatori (sez. 4) | ✅ | Schema pronto (incl. `initialQuotation`), API di lettura (`GET /players` con filtri ruolo/squadra/ricerca + riassunto valutazione, `GET /players/:id` con dettaglio completo); **popolato con dati reali** (~760 giocatori, cresce ad ogni "Aggiorna Database" con trasferimenti/nuovi arrivi) tramite i 3 connettori attivi in produzione; UI: `PlayersPage` (lista filtrabile/ordinabile) + `PlayerDetailPage` (spiegazione completa per categoria, incl. **storico fantamedia multi-stagione** — `SeasonStats` supportava già righe multiple per giocatore, serviva solo far scrivere più stagioni a FSTATS, vedi §5 — e colonna "% partite saltate per infortunio", `null` finché nessuna fonte la fornisce) |
 | Sistema di aggiornamento / scraping (sez. 5) | 🚧 | Pipeline completa: `POST /import/run` (pulsante "Aggiorna Database" in Dashboard) orchestra connettori modulari (`ImportConnector`) e fa upsert con source/reliability. **Tutti e 3 i connettori sono reali e verificati in produzione**: Fantacalcio.it/quotazioni (identità/quotazione/ruolo, unico autorizzato a creare nuovi `Player`), FSTATS (in realtà `fantacalcio.it/statistiche-serie-a/{stagione}`, ora **3 stagioni** — `2025-26`/`2024-25`/`2023-24`, storico fantamedia richiesto esplicitamente dall'utente, vedi §5), Fantacalciopedia (gerarchie "titolare" + rigoristi/tiratori punizioni). Vedi §5 decisioni per il matching fuzzy per nome e `canCreatePlayers`. Le due stagioni passate aggiunte a FSTATS **non sono state verificate dal vivo** in questa sessione (stesso limite di rete, vedi sotto): stessi selettori della stagione corrente, presunti stabili ma da confermare in produzione |
-| Transfer Engine (sez. 6) | ⬜ | Modello dati presente (`Transfer`), motore di calcolo impatto non implementato |
-| Rotation Engine (sez. 7) | ⬜ | Modello dati presente (`TeamRotationProfile`), coefficienti non calcolati |
+| Transfer Engine (sez. 6) | 🚧 | Motore puro `apps/api/src/lib/transfer/computeTransferImpact.ts` (stesso pattern degli altri engine): confronta due `TransferEvaluationSnapshot` (prima/dopo) e restituisce gli impatti richiesti dalla spec (titolarità, minuti, bonus, rischio, valore fantacalcistico) più `isHighlighted` (prob. titolarità dopo > 55%). **Nessuno scraping di calciomercato dedicato**: il trasferimento è rilevato gratuitamente confrontando `Player.team` tra due "Aggiorna Database" successivi in `import/upsert.ts` (solo Fantacalcio.it/quotazioni, l'unica fonte `canCreatePlayers`, può far emergere un cambio squadra reale). L'impatto è calcolato in `import/runImport.ts` a fine ciclo: per ogni cambio rilevato, legge le due `PlayerEvaluation` più recenti del giocatore (quella appena ricalcolata "dopo" e quella immediatamente precedente "prima") e persiste una riga `Transfer` — non è una previsione, è la differenza reale calcolata dal Player Evaluation Engine. Storico visibile in `PlayerDetailPage` (tabella "Trasferimenti", righe con prob. titolarità > 55% evidenziate). Vedi §5 per i dettagli e i limiti (nessun trasferimento "di mercato" viene mai inventato, solo quelli che il listone ufficiale rileva davvero) |
+| Rotation Engine (sez. 7) | 🚧 | Motore puro `apps/api/src/lib/rotation/computeTeamRotationProfiles.ts`: `turnoverFrequency` calcolato da dati reali (minuti medi titolare vs prima riserva per ruolo, da FSTATS/`SeasonStats.minutes`), non stimato. `coachReliability` resta un valore neutro fisso (`0.5`, nessuna fonte reale sull'allenatore) e `numberOfCompetitions` resta `1` per tutte le squadre finché non viene fornito un elenco verificato delle squadre nelle coppe europee (vedi §5, stesso principio "mai inventare" già seguito altrove) — entrambi pronti a migliorare senza cambi di codice se arriva un dato reale. Scritto da `lib/rotation/updateTeamRotationProfiles.ts` (upsert per squadra), richiamato da `import/runImport.ts` PRIMA di `evaluateAllPlayers()`, cosi' `reliability.rotationRisk` (slot già esistente nel Player Evaluation Engine, sez. 8, mai popolato prima) trova finalmente un profilo reale per le squadre con dati sufficienti — squadre senza abbastanza dati vengono saltate, mai un coefficiente inventato |
 | Player Evaluation Engine (sez. 8) | 🚧 | Motore puro in `apps/api/src/lib/evaluation/` (un calcolatore per categoria + `evaluatePlayer` orchestratore, nessuna dipendenza da Prisma/HTTP), ricalcolato in automatico a fine `POST /import/run` (`evaluateAllPlayers`) e salvato come nuova riga `PlayerEvaluation` per giocatore. Indici `number \| null`: `null` = dato non disponibile, sempre spiegato in `explanation.factors`. Con tutti e 3 i connettori ora reali, `explanation.confidence` è significativamente più alta di prima (produzione/bonus/stabilità/affidabilità reali per i giocatori coperti da FSTATS/Fantacalciopedia); resta `null` solo dove nessuna fonte ha dati per quel giocatore/indice specifico. `reliability.injuryRisk` collegato a `SeasonStats.injuryAbsenceRate` (% partite saltate per infortunio, richiesto esplicitamente dall'utente): il campo/indice esiste end-to-end (schema → motore → UI) ma resta `null` per tutti — il tentativo di collegarlo a Transfermarkt (batch, poi on-demand un giocatore alla volta) è stato **abbandonato**: ogni richiesta, anche singola, falliva con HTTP 504 generato da CloudFront (blocco a livello di rete/infrastruttura sugli IP Vercel, non un problema di selettori o header, vedi §5) |
 | Dashboard (sez. 9) | 🚧 | Header collegato alla League reale (nome, partecipanti, budget, rosa) con CTA a `/setup` se non configurata. Delle 9 sezioni spec, 4 collegate a dati reali (Migliori occasioni, Sopravvalutati, Titolari, Rigoristi/piazzati — vedi §5 sui limiti di "nuovi"); le altre 5 (cambi gerarchia, infortuni, trasferimenti, in crescita/in calo) restano placeholder onesti con la ragione esplicita (richiedono storico o motori non ancora costruiti), non dati finti. **Filtri implementati**: `DashboardFiltersBar` (`components/DashboardFilters.tsx`) — ruolo, squadra, fascia prezzo (quotazione), età, rischio (disponibilità), titolarità, tutti quelli richiesti dalla spec sez. 9 — filtra il pool di giocatori condiviso da tutte le sezioni prima che ognuna estragga la propria top-5 (vedi §5 sulla scelta di una barra unica invece di controlli per pannello) |
 | Sistema grafico (sez. 10) | 🚧 | Pagina dedicata `/confronti` ("Confronti" in nav, coerente con la direzione UX §9 "tab dedicate"), **due modalità**: **Giocatori** — selezione di fino a 4 giocatori (ricerca nome + filtro ruolo + filtro squadra + ordinamento, stesso pattern di `PlayersPage`, richiesto esplicitamente — non solo ricerca per nome), 4 grafici **sovrapponibili** (la funzionalità che la spec segnala come "fondamentale") con Recharts — fantamedia storica (linea), gol/assist ultima stagione (barre raggruppate), minuti ultima stagione (barre), quotazione ufficiale vs prezzo atteso (barre raggruppate); **Rose** — confronto tra le rose dei partecipanti a un'asta in corso (richiesto esplicitamente, non in spec), radar di rosa (sez. sotto) di tutti i partecipanti sovrapposto sullo stesso grafico, messaggio onesto se nessuna asta e' attiva (il radar di rosa esiste solo dentro un'asta). Scope Giocatori concordato con l'utente come primo blocco, non tutti i 9 tipi di grafico della spec: scatter (dispersione), istogrammi, box plot, heatmap, distribuzioni, timeline restano ⬜ (radar ora fatto, sia per-rosa che qui). "Prezzo reale" (spec: "prezzo stimato vs reale") non disponibile: nessuna asta con abbastanza dati storici, solo "prezzo atteso" dal motore di valutazione |
@@ -688,6 +688,64 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   e definire le risposte") era già implementato da una sessione precedente e riusato identico ad
   ogni chiamata — nessun nuovo codice necessario per soddisfare questa parte della richiesta,
   solo verificato che il meccanismo esistente la copre già.
+- **Rotation Engine: turnover da minuti reali, non da un modello di rotazione vero e proprio**:
+  richiesto dall'utente con "completiamo tutti gli engine" (gli unici due rimasti ⬜
+  nell'architettura, sez. 6/7). La spec (sez. 7) parla di "coefficiente di rotazione per
+  allenatore" — nessuna fonte integrata oggi dice nulla sull'allenatore in sé (tattica, fiducia
+  nei giovani, ecc.), quindi `coachReliability` resta un valore neutro fisso (`0.5`,
+  `NEUTRAL_COACH_RELIABILITY`), mai calcolato. Quello che invece è calcolabile per davvero da
+  dati già reali (FSTATS, `SeasonStats.minutes`/`appearances`): `turnoverFrequency` per squadra,
+  dal rapporto tra i minuti medi a partita del probabile titolare e quelli della prima riserva
+  per ruolo (`hierarchyLevel` da Fantacalciopedia) — più il backup gioca rispetto al titolare,
+  più la squadra ruota davvero. `numberOfCompetitions` (quante coppe europee la squadra gioca,
+  ogni competizione in più alza il turnover atteso) resta `1` per tutte le squadre: non esiste
+  ancora un elenco verificato e aggiornato delle squadre in Champions/Europa/Conference per la
+  stagione corrente nel codice, e il principio "mai inventare selettori/dati non verificati"
+  (§5, incidente `canCreatePlayers`) si applica anche qui — hardcodare un elenco da una ricerca
+  web ambigua sarebbe lo stesso tipo di rischio. Squadre con troppo pochi dati (nessun titolare o
+  nessuna riserva identificabile per nessun ruolo) sono **saltate interamente**, non scritte con
+  un valore fittizio: `TeamRotationProfile.turnoverFrequency` è `Float` non-nullable in schema
+  (la spec lo vuole sempre un numero), quindi l'unica alternativa onesta a un default inventato è
+  non scrivere affatto la riga per quella squadra. Scritto da una nuova funzione di confine DB
+  (`lib/rotation/updateTeamRotationProfiles.ts`, stesso pattern di `evaluateAllPlayers.ts`:
+  motore puro `computeTeamRotationProfiles.ts` senza Prisma, funzione separata che fa le query e
+  l'upsert), richiamata da `import/runImport.ts` **prima** di `evaluateAllPlayers()` — cosi'
+  `reliability.rotationRisk` (slot già esistente nel Player Evaluation Engine dalla primissima
+  sessione, sez. 8, sempre `null` finora per mancanza di un profilo di rotazione reale) trova
+  finalmente dati per le squadre che ne hanno abbastanza, senza toccare `reliability.ts` oltre
+  ad aggiornare un commento ormai superato.
+- **Transfer Engine: rilevato per confronto diretto di `Player.team`, nessuno scraping di
+  calciomercato dedicato**: la spec (sez. 6) implicherebbe una fonte che segnala "trasferimento
+  avvenuto" in tempo reale — ma costruirne una richiederebbe indovinare selettori CSS su un sito
+  di calciomercato mai verificato dal vivo in questa sessione (stesso rischio già materializzato
+  una volta con l'incidente `canCreatePlayers`, §5). Soluzione scelta: dato che Fantacalcio.it/
+  quotazioni è già l'unica fonte autorizzata a scrivere `Player.team` (`canCreatePlayers`), un
+  trasferimento reale emerge gratis confrontando `existing.team` (valore nel DB prima
+  dell'update) con `team` (valore appena arrivato dalla fonte) dentro `findOrCreatePlayer`
+  (`import/upsert.ts`) — se sono diversi, è un trasferimento vero, rilevato dallo stesso identico
+  meccanismo che già aggiorna il giocatore, zero query aggiuntive. `upsertPlayerImportRecords`
+  raccoglie questi `DetectedTransfer[]` (playerId/fromTeam/toTeam) e li restituisce in
+  `UpsertOutcome`, senza calcolare ancora l'impatto (il motore puro non ha bisogno di sapere come
+  il trasferimento e' stato scoperto). L'impatto vero e proprio è calcolato in
+  `import/runImport.ts`, **dopo** `evaluateAllPlayers()`: per ogni trasferimento rilevato in
+  questo giro, legge le due `PlayerEvaluation` più recenti del giocatore (`take: 2, orderBy:
+  computedAt desc`) — la prima è quella appena ricalcolata con la squadra nuova ("dopo"), la
+  seconda è quella immediatamente precedente, calcolata con la squadra vecchia ("prima") —
+  costruisce due `TransferEvaluationSnapshot` (`snapshotFromEvaluation`, media dei 4
+  `BonusIndices`, `starterProbability`, `expectedMinutes`, `injuryRisk`, `valueScore`) e chiama
+  `computeTransferImpact` (motore puro, `lib/transfer/computeTransferImpact.ts`): non è una
+  previsione, è la differenza reale tra come il Player Evaluation Engine vedeva il giocatore
+  prima e dopo, nella stessa identica sessione di "Aggiorna Database". Ogni delta clampato in
+  -1..1 (`clampDelta`) e messo a `0` quando prima/dopo non hanno entrambi il dato necessario —
+  i campi Prisma (`startingRoleImpact` ecc.) sono `Float` non-nullable (la spec sez. 6 li vuole
+  sempre calcolati per un trasferimento), quindi a differenza del resto dell'app qui `0` significa
+  esplicitamente "dato insufficiente", documentato come tale nel commento del motore, non
+  spacciato per "nessun impatto reale". `isHighlighted` (prob. titolarità dopo > 55%, soglia
+  dichiarata in `HIGHLIGHT_THRESHOLD`) evidenzia in UI i trasferimenti più rilevanti. Storico
+  esposto in `GET /players/:id` (la relazione `transfers` era già inclusa nella query, mai
+  esposta finora perché il modello era vuoto) e mostrato in `PlayerDetailPage` come nuova tabella
+  "Trasferimenti", stesso pattern non-mappato delle altre collezioni annidate (righe Prisma cosi'
+  come sono, vedi nota già presente in `apps/web/src/lib/api.ts`).
 
 ## 6. Convenzioni di sviluppo
 
@@ -928,3 +986,15 @@ e ha chiesto esplicitamente, come direzione per il resto del frontend:
     dati → asta live con supporto decisionale → report finale") — ultimo anello, ora presente.
     Resta ⬜: un report "di lega" con tutti i partecipanti confrontati (non richiesto, la spec
     e l'app restano scoperte sul singolo fantallenatore).
+32. ~~Rotation Engine (sez. 7)~~ e ~~Transfer Engine (sez. 6)~~ — fatti, richiesti esplicitamente
+    con "completiamo tutti gli engine" (erano gli unici due ⬜ rimasti nella tabella architetturale
+    sez. 4). Rotation: `turnoverFrequency` da minuti reali FSTATS, `coachReliability` neutro fisso,
+    `numberOfCompetitions` fisso a 1 finché non arriva un elenco verificato delle squadre in coppa
+    (vedi §5). Transfer: rilevato per confronto diretto di `Player.team` durante l'upsert (nessun
+    nuovo scraping di calciomercato), impatto calcolato confrontando la `PlayerEvaluation` prima/
+    dopo lo stesso ciclo di "Aggiorna Database", storico visibile in `PlayerDetailPage` (vedi §5).
+    Con questi due, **tutti gli engine della spec (sez. 6-16) hanno almeno un nucleo reale
+    funzionante** — nessuno resta ⬜ nella tabella sez. 4. Non verificato dal vivo in questa
+    sessione (stessa limitazione di rete di sempre, vedi punto 26): sia il rilevamento
+    trasferimenti sia il calcolo di rotazione dipendono da un vero giro di "Aggiorna Database" in
+    produzione, che nessuna sessione remota può ancora innescare da qui.

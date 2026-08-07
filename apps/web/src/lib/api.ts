@@ -114,6 +114,24 @@ export interface PlayerSetPieceRow {
   source: string;
 }
 
+/** Riga grezza `Transfer` (sez. 6, Transfer Engine) cosi' come restituita da GET /players/:id —
+ * stesso pattern delle altre collezioni annidate qui sopra (righe Prisma cosi' come sono, nessun
+ * mapper verso il tipo condiviso con `meta: DataSourceMeta`). */
+export interface PlayerTransferRow {
+  id: string;
+  fromTeam: string;
+  toTeam: string;
+  date: string;
+  startingRoleImpact: number;
+  minutesImpact: number;
+  bonusImpact: number;
+  riskDelta: number;
+  fantasyValueDelta: number;
+  newStarterProbability: number;
+  isHighlighted: boolean;
+  source: string;
+}
+
 export interface PlayerDetail {
   id: string;
   name: string;
@@ -130,6 +148,7 @@ export interface PlayerDetail {
   seasonStats: PlayerSeasonStatsRow[];
   hierarchies: PlayerHierarchyRow[];
   setPieceRoles: PlayerSetPieceRow[];
+  transfers: PlayerTransferRow[];
   evaluations: PlayerEvaluation[];
 }
 

@@ -270,6 +270,61 @@ export function PlayerDetailPage() {
           </p>
         </section>
       )}
+
+      {player.transfers.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-medium">Trasferimenti</h2>
+          <div className="overflow-x-auto rounded-lg border border-slate-800">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-900 text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Data</th>
+                  <th className="px-3 py-2 font-medium">Da</th>
+                  <th className="px-3 py-2 font-medium">A</th>
+                  <th className="px-3 py-2 font-medium text-right">Prob. titolarità dopo</th>
+                  <th className="px-3 py-2 font-medium text-right">Impatto titolarità</th>
+                  <th className="px-3 py-2 font-medium text-right">Impatto minuti</th>
+                  <th className="px-3 py-2 font-medium text-right">Impatto bonus</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-900">
+                {[...player.transfers]
+                  .sort((a, b) => b.date.localeCompare(a.date))
+                  .map((t) => (
+                    <tr key={t.id} className={t.isHighlighted ? "bg-emerald-950/30" : undefined}>
+                      <td className="px-3 py-2 text-slate-400">
+                        {new Date(t.date).toLocaleDateString("it-IT")}
+                      </td>
+                      <td className="px-3 py-2">{t.fromTeam}</td>
+                      <td className="px-3 py-2">{t.toTeam}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {Math.round(t.newStarterProbability * 100)}%
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {t.startingRoleImpact > 0 ? "+" : ""}
+                        {t.startingRoleImpact}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {t.minutesImpact > 0 ? "+" : ""}
+                        {t.minutesImpact}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {t.bonusImpact > 0 ? "+" : ""}
+                        {t.bonusImpact}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-slate-500">
+            Cambio squadra rilevato confrontando la valutazione del giocatore prima e dopo il
+            trasferimento (sez. 6): un impatto a 0 significa "dato insufficiente per calcolarlo",
+            non necessariamente "nessun cambiamento". Righe evidenziate: probabilità di titolarità
+            dopo il trasferimento oltre il 55%.
+          </p>
+        </section>
+      )}
     </div>
   );
 }

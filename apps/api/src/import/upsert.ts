@@ -13,9 +13,20 @@ interface UpsertContext {
   canCreatePlayers: boolean;
 }
 
+export interface DetectedTransfer {
+  playerId: string;
+  fromTeam: string;
+  toTeam: string;
+}
+
 interface UpsertOutcome {
   upserted: number;
   errors: string[];
+  /** Cambi squadra rilevati in questo giro (sez. 6, Transfer Engine): solo le fonti con
+   * `canCreatePlayers` possono scrivere `team` (vedi sotto), quindi solo li' un trasferimento
+   * puo' essere rilevato. L'impatto viene calcolato dopo, a fine `runImport`, confrontando la
+   * `PlayerEvaluation` di prima e quella ricalcolata dopo — non qui. */
+  detectedTransfers: DetectedTransfer[];
 }
 
 // injuryAbsenceRate resta fuori da questo elenco: gli altri campi sono colonne non-nullable con
@@ -56,19 +67,22 @@ export async function upsertPlayerImportRecords(
 ): Promise<UpsertOutcome> {
   let upserted = 0;
   const errors: string[] = [];
+  const detectedTransfers: DetectedTransfer[] = [];
 
   for (const record of records) {
     try {
-      const player = await findOrCreatePlayer(record, context);
-      if (!player) {
+      const result = await findOrCreatePlayer(record, context);
+      if (!result) {
         errors.push(
           `Saltato "${record.name}" (${record.team}): nessun giocatore esistente trovato (match esatto o fuzzy) e questa fonte non puo' crearne uno nuovo.`,
         );
         continue;
       }
+      const { player, transfer } = result;
       await syncSeasonStats(player.id, record, context);
       await syncHierarchy(player.id, record, context);
       await syncSetPieces(player.id, record, context);
+      if (transfer) detectedTransfers.push(transfer);
       upserted += 1;
     } catch (err) {
       errors.push(
@@ -77,7 +91,7 @@ export async function upsertPlayerImportRecords(
     }
   }
 
-  return { upserted, errors };
+  return { upserted, errors, detectedTransfers };
 }
 
 /** Riduce un nome a un set di token confrontabili tra fonti con grafie diverse: minuscolo,
@@ -121,7 +135,10 @@ async function findPlayerByFuzzyName(name: string, role: PlayerImportRecord["rol
   return findUnique(undefined);
 }
 
-async function findOrCreatePlayer(record: PlayerImportRecord, context: UpsertContext) {
+async function findOrCreatePlayer(
+  record: PlayerImportRecord,
+  context: UpsertContext,
+): Promise<{ player: { id: string }; transfer: DetectedTransfer | null } | null> {
   const name = record.name.trim();
   const team = record.team.trim();
   let existing = await prisma.player.findFirst({ where: { name, team } });
@@ -134,7 +151,7 @@ async function findOrCreatePlayer(record: PlayerImportRecord, context: UpsertCon
     // giocatori nuovi, solo il rischio di duplicati con dati mal formattati (vedi commento
     // su UpsertContext.canCreatePlayers).
     if (!context.canCreatePlayers || !record.role) return null;
-    return prisma.player.create({
+    const created = await prisma.player.create({
       data: {
         name,
         team,
@@ -145,6 +162,7 @@ async function findOrCreatePlayer(record: PlayerImportRecord, context: UpsertCon
         availability: "available",
       },
     });
+    return { player: created, transfer: null };
   }
 
   const data = context.canCreatePlayers
@@ -165,7 +183,17 @@ async function findOrCreatePlayer(record: PlayerImportRecord, context: UpsertCon
         reliability: context.reliability,
       };
 
-  return prisma.player.update({ where: { id: existing.id }, data });
+  const updated = await prisma.player.update({ where: { id: existing.id }, data });
+
+  // Trasferimento (sez. 6, Transfer Engine): rilevato per confronto diretto, non da uno
+  // scraping di calciomercato dedicato — solo Fantacalcio.it/quotazioni puo' scrivere `team`
+  // (canCreatePlayers), quindi e' l'unica fonte che puo' far emergere un cambio squadra reale.
+  const transfer =
+    context.canCreatePlayers && existing.team !== team
+      ? { playerId: updated.id, fromTeam: existing.team, toTeam: team }
+      : null;
+
+  return { player: updated, transfer };
 }
 
 async function syncSeasonStats(
