@@ -22,11 +22,10 @@ const ROLES: PlayerRole[] = ["P", "D", "C", "A"];
 // formazione) e' disponibile: valore neutro fisso, non calibrato — la differenziazione tra
 // squadre viene comunque da turnoverFrequency, calcolato dai dati reali sotto.
 const NEUTRAL_COACH_RELIABILITY = 0.5;
-// +15% di turnover stimato per ogni competizione oltre alla sola Serie A (Champions/Europa/
-// Conference/Coppa Italia, sez. 7): euristica dichiarata, non calibrata su dati reali di
-// affaticamento/calendario. `numberOfCompetitions` di default vale 1 per tutte le squadre
-// (nessun elenco verificato delle squadre nelle coppe 2026-27 disponibile in questa sessione,
-// vedi CLAUDE.md §5) finche' non viene impostato manualmente.
+// +15% di turnover stimato per ogni competizione europea oltre alla sola Serie A (sez. 7):
+// euristica dichiarata sull'entità dell'effetto, non calibrata su dati reali di affaticamento/
+// calendario — ma `numberOfCompetitions` stesso (quante coppe europee gioca la squadra) e' dato
+// reale, vedi EUROPEAN_COMPETITIONS_2026_27 in updateTeamRotationProfiles.ts.
 const COMPETITION_MULTIPLIER_STEP = 0.15;
 
 function average(values: number[]): number | null {
