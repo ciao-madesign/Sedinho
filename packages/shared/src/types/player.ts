@@ -97,6 +97,9 @@ export interface PlayerListItem {
    * (stagione più recente - precedente), `null` se il giocatore ha meno di 2 stagioni con
    * fantamedia nota. Usato per "in crescita"/"in calo" in Dashboard (sez. 9). */
   fantasyAvgTrend: number | null;
+  /** Fantamedia (Serie A) della stagione più recente con presenze reali, `null` se nessuna
+   * stagione disponibile. Usato per "giocatore vs media ruolo/squadra" in Confronti (sez. 10). */
+  fantasyAvg: number | null;
 }
 
 /** Profilo di rotazione stimato per una squadra (sez. 4, "Rotazioni"). */

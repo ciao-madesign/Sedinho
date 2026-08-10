@@ -69,6 +69,7 @@ export async function playerRoutes(app: FastifyInstance) {
         ),
         confidence: latestEvaluation?.explanation.confidence ?? null,
         fantasyAvgTrend,
+        fantasyAvg: latestSeason?.fantasyAvg ?? null,
       };
     });
   });

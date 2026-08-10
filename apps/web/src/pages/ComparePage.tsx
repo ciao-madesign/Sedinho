@@ -12,9 +12,12 @@ import {
   Radar,
   RadarChart,
   ResponsiveContainer,
+  Scatter,
+  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
+  ZAxis,
 } from "recharts";
 import type { ActiveAuctionState, PlayerListItem, PlayerRole } from "@sedinho/shared";
 import { auctionApi, playersApi, type PlayerDetail } from "../lib/api.js";
@@ -27,6 +30,20 @@ const PLAYER_COLORS = ["#34d399", "#60a5fa", "#f472b6", "#fbbf24"];
 type PlayerSortKey = "value" | "quotation" | "starter" | "name";
 
 const ROLE_FILTERS: (PlayerRole | "ALL")[] = ["ALL", "P", "D", "C", "A"];
+
+/** Stessi colori per ruolo usati altrove nell'app (`playerFormat.ts`, versione esadecimale per
+ * Recharts che non legge le classi Tailwind). */
+const ROLE_COLORS: Record<PlayerRole, string> = {
+  P: "#fbbf24",
+  D: "#38bdf8",
+  C: "#34d399",
+  A: "#fb7185",
+};
+
+function average(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return Number((values.reduce((sum, v) => sum + v, 0) / values.length).toFixed(2));
+}
 
 const PLAYER_SORT_OPTIONS: { key: PlayerSortKey; label: string }[] = [
   { key: "value", label: "Valore" },
@@ -55,6 +72,7 @@ export function ComparePage() {
   const [details, setDetails] = useState<Record<string, PlayerDetail>>({});
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [auction, setAuction] = useState<ActiveAuctionState | null | undefined>(undefined);
+  const [scatterRole, setScatterRole] = useState<PlayerRole | "ALL">("ALL");
 
   useEffect(() => {
     playersApi
@@ -159,6 +177,64 @@ export function ComparePage() {
       "Prezzo atteso": evaluation?.value.expectedAuctionPrice ?? 0,
     };
   });
+
+  // "Giocatore vs media ruolo/squadra" (sez. 10): medie calcolate su TUTTO il pool (non sul
+  // sottoinsieme di giocatori selezionati per il confronto), cosi' rappresentano davvero "la
+  // media della categoria" e non si spostano ad ogni selezione.
+  const roleAverages = useMemo(() => {
+    const byRole: Partial<Record<PlayerRole, number[]>> = {};
+    for (const p of pool ?? []) {
+      if (p.fantasyAvg === null) continue;
+      (byRole[p.role] ??= []).push(p.fantasyAvg);
+    }
+    return Object.fromEntries(
+      (Object.keys(byRole) as PlayerRole[]).map((role) => [role, average(byRole[role]!)]),
+    ) as Partial<Record<PlayerRole, number>>;
+  }, [pool]);
+
+  const teamAverages = useMemo(() => {
+    const byTeam: Record<string, number[]> = {};
+    for (const p of pool ?? []) {
+      if (p.fantasyAvg === null) continue;
+      (byTeam[p.team] ??= []).push(p.fantasyAvg);
+    }
+    return Object.fromEntries(Object.entries(byTeam).map(([team, vals]) => [team, average(vals)]));
+  }, [pool]);
+
+  const vsAverageData = selectedPlayers.map((p) => {
+    const s = latestSeason(p);
+    return {
+      nome: p.name,
+      Fantamedia: s?.fantasyAvg ?? 0,
+      "Media ruolo": roleAverages[p.role] ?? 0,
+      "Media squadra": teamAverages[p.team] ?? 0,
+    };
+  });
+
+  // Scatter valore/prezzo (sez. 10): su tutto il pool (filtrabile per ruolo), non solo sui
+  // giocatori selezionati per il confronto — serve a scovare occasioni a colpo d'occhio, non a
+  // confrontare giocatori specifici. Solo giocatori con entrambi i dati noti, mai un punto
+  // inventato per un valore mancante.
+  const scatterData = useMemo(() => {
+    return (pool ?? [])
+      .filter((p) => scatterRole === "ALL" || p.role === scatterRole)
+      .filter((p) => p.initialQuotation !== null && p.valueScore !== null)
+      .map((p) => ({
+        id: p.id,
+        nome: p.name,
+        role: p.role,
+        quotazione: p.initialQuotation!,
+        valore: Math.round(p.valueScore! * 100),
+      }));
+  }, [pool, scatterRole]);
+
+  const scatterByRole = useMemo(() => {
+    const roles: PlayerRole[] = scatterRole === "ALL" ? ["P", "D", "C", "A"] : [scatterRole];
+    return roles.map((role) => ({
+      role,
+      points: scatterData.filter((p) => p.role === role),
+    }));
+  }, [scatterData, scatterRole]);
 
   return (
     <div className="space-y-6">
@@ -360,14 +436,96 @@ export function ComparePage() {
               </BarChart>
             </ResponsiveContainer>
           </ChartCard>
+
+          <ChartCard title="Fantamedia vs media ruolo/squadra">
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={vsAverageData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <XAxis dataKey="nome" stroke="#64748b" fontSize={12} />
+                <YAxis stroke="#64748b" fontSize={12} />
+                <Tooltip contentStyle={tooltipStyle} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="Fantamedia" fill="#34d399" />
+                <Bar dataKey="Media ruolo" fill="#60a5fa" />
+                <Bar dataKey="Media squadra" fill="#f472b6" />
+              </BarChart>
+            </ResponsiveContainer>
+            <p className="mt-2 text-xs text-slate-600">
+              Medie calcolate sull'ultima stagione Serie A disponibile per ogni giocatore del
+              database (0 se nessun giocatore del ruolo/squadra ha fantamedia nota).
+            </p>
+          </ChartCard>
         </div>
       )}
+
+      <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-medium text-slate-300">Scatter quotazione vs valore</h2>
+          <div className="flex gap-1 rounded-md border border-slate-800 bg-slate-950 p-1">
+            {ROLE_FILTERS.map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setScatterRole(r)}
+                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                  scatterRole === r
+                    ? "bg-emerald-500 text-slate-950"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                {r === "ALL" ? "Tutti" : r}
+              </button>
+            ))}
+          </div>
+        </div>
+        <ResponsiveContainer width="100%" height={340}>
+          <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+            <XAxis
+              type="number"
+              dataKey="quotazione"
+              name="Quotazione"
+              unit=" cr."
+              stroke="#64748b"
+              fontSize={12}
+            />
+            <YAxis
+              type="number"
+              dataKey="valore"
+              name="Valore"
+              unit="%"
+              domain={[0, 100]}
+              stroke="#64748b"
+              fontSize={12}
+            />
+            <ZAxis range={[40, 40]} />
+            <Tooltip
+              cursor={{ strokeDasharray: "3 3" }}
+              contentStyle={tooltipStyle}
+              formatter={(value: number, key: string) =>
+                key === "quotazione" ? `${value} cr.` : `${value}%`
+              }
+              labelFormatter={() => ""}
+            />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            {scatterByRole.map(({ role, points }) => (
+              <Scatter key={role} name={role} data={points} fill={ROLE_COLORS[role]} />
+            ))}
+          </ScatterChart>
+        </ResponsiveContainer>
+        <p className="mt-2 text-xs text-slate-600">
+          Ogni punto è un giocatore: quotazione ufficiale (asse X) vs percentile di valore nel
+          proprio ruolo (asse Y, `valueScore` del Player Evaluation Engine). In alto a sinistra =
+          quotazione bassa ma valore alto, potenziali occasioni. Solo giocatori con entrambi i
+          dati noti.
+        </p>
+      </div>
 
       <p className="text-xs text-slate-500">
         "Prezzo atteso" viene dal Player Evaluation Engine (sez. 8), non da un prezzo pagato
         realmente — nessuna asta con dati storici sufficienti a mostrare un "prezzo reale" per
-        confronto oggi. Grafici scatter/istogrammi/box plot/heatmap/distribuzioni/timeline della
-        spec (sez. 10) non sono ancora stati costruiti.
+        confronto oggi. Grafici istogrammi/box plot/heatmap/distribuzioni/timeline della spec
+        (sez. 10) non sono ancora stati costruiti.
       </p>
       </>
       )}

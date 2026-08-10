@@ -493,6 +493,7 @@ function ShortlistPanel({
                     setPieceTypes: entry.player.setPieceTypes,
                     confidence: null,
                     fantasyAvgTrend: null,
+                    fantasyAvg: null,
                   })
                 }
                 className="flex items-center gap-1.5"
