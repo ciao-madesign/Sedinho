@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { PlayerListItem } from "@sedinho/shared";
 import { prisma } from "../db/prisma.js";
 import { toPlayerEvaluation } from "../lib/evaluation-mapper.js";
+import { toTransfer } from "../lib/transfer-mapper.js";
 
 interface ListPlayersQuery {
   role?: string;
@@ -24,6 +25,7 @@ export async function playerRoutes(app: FastifyInstance) {
         evaluations: { orderBy: { computedAt: "desc" }, take: 1 },
         hierarchies: true,
         setPieceRoles: true,
+        seasonStats: { where: { competition: "Serie A" }, orderBy: { season: "desc" } },
       },
     });
 
@@ -39,6 +41,16 @@ export async function playerRoutes(app: FastifyInstance) {
       const bestHierarchy = [...player.hierarchies].sort(
         (a, b) => b.reliability - a.reliability,
       )[0];
+      // "In crescita"/"in calo" (Dashboard, sez. 9): confronta la fantamedia delle 2 stagioni
+      // Serie A più recenti con dato reale (`seasonStats` già ordinato desc per stagione). Un
+      // giocatore con meno di 2 stagioni o senza presenze in una di esse resta `null`, mai una
+      // stima su una sola stagione.
+      const seasonsWithAvg = player.seasonStats.filter((s) => s.appearances > 0);
+      const [latestSeason, previousSeason] = seasonsWithAvg;
+      const fantasyAvgTrend =
+        latestSeason && previousSeason
+          ? Number((latestSeason.fantasyAvg - previousSeason.fantasyAvg).toFixed(2))
+          : null;
 
       return {
         id: player.id,
@@ -56,8 +68,21 @@ export async function playerRoutes(app: FastifyInstance) {
           (setPiece) => setPiece.type as PlayerListItem["setPieceTypes"][number],
         ),
         confidence: latestEvaluation?.explanation.confidence ?? null,
+        fantasyAvgTrend,
       };
     });
+  });
+
+  // Trasferimenti recenti (sez. 6, Transfer Engine) per la sezione "Trasferimenti" della
+  // Dashboard (sez. 9): non serve il dettaglio giocatore, solo l'evento + il playerId, il
+  // frontend fa il join con la lista giocatori già caricata.
+  app.get<{ Querystring: { limit?: string } }>("/transfers/recent", async (request) => {
+    const limit = Math.min(Number(request.query.limit) || 10, 50);
+    const transfers = await prisma.transfer.findMany({
+      orderBy: { date: "desc" },
+      take: limit,
+    });
+    return transfers.map(toTransfer);
   });
 
   app.get<{ Params: { id: string } }>("/players/:id", async (request, reply) => {

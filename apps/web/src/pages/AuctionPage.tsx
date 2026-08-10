@@ -492,6 +492,7 @@ function ShortlistPanel({
                     hierarchyLevel: entry.player.hierarchyLevel,
                     setPieceTypes: entry.player.setPieceTypes,
                     confidence: null,
+                    fantasyAvgTrend: null,
                   })
                 }
                 className="flex items-center gap-1.5"

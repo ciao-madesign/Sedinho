@@ -93,6 +93,10 @@ export interface PlayerListItem {
   setPieceTypes: SetPieceType[];
   /** Frazione di indici calcolati con dati reali sui 20 totali della `PlayerEvaluation`. */
   confidence: number | null;
+  /** Delta di fantamedia (Serie A) tra le due stagioni più recenti con dato disponibile
+   * (stagione più recente - precedente), `null` se il giocatore ha meno di 2 stagioni con
+   * fantamedia nota. Usato per "in crescita"/"in calo" in Dashboard (sez. 9). */
+  fantasyAvgTrend: number | null;
 }
 
 /** Profilo di rotazione stimato per una squadra (sez. 4, "Rotazioni"). */

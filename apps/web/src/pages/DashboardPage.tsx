@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import type { LeagueConfig, PlayerListItem } from "@sedinho/shared";
+import type { LeagueConfig, PlayerListItem, Transfer } from "@sedinho/shared";
 import { leaguesApi, playersApi } from "../lib/api.js";
 import { ImportPanel } from "../components/ImportPanel.js";
 import { PlayerRoleBadge } from "../components/PlayerRoleBadge.js";
@@ -23,6 +23,7 @@ interface DashboardSectionData {
 export function DashboardPage() {
   const [league, setLeague] = useState<LeagueConfig | null | undefined>(undefined);
   const [players, setPlayers] = useState<PlayerListItem[] | null>(null);
+  const [recentTransfers, setRecentTransfers] = useState<Transfer[] | null>(null);
   const [filters, setFilters] = useState<DashboardFiltersState>(defaultDashboardFilters);
 
   useEffect(() => {
@@ -31,6 +32,10 @@ export function DashboardPage() {
       .then((leagues) => setLeague(leagues[0] ?? null))
       .catch(() => setLeague(null));
     playersApi.list().then(setPlayers).catch(() => setPlayers(null));
+    playersApi
+      .recentTransfers(5)
+      .then(setRecentTransfers)
+      .catch(() => setRecentTransfers(null));
   }, []);
 
   const teams = useMemo(() => {
@@ -73,6 +78,30 @@ export function DashboardPage() {
       .filter((p) => p.setPieceTypes.length > 0)
       .slice(0, 5);
 
+    // Trasferimenti (sez. 6, Transfer Engine): join tra i trasferimenti recenti e il pool
+    // filtrato, cosi' la barra filtri della Dashboard si applica anche qui — un trasferimento
+    // di un giocatore escluso dai filtri attuali (es. ruolo/squadra) non compare.
+    const playersById = new Map((filteredPlayers ?? []).map((p) => [p.id, p]));
+    const transferSummaryById = new Map(
+      (recentTransfers ?? []).map((t) => [
+        t.playerId,
+        `${t.fromTeam ?? "?"} → ${t.toTeam}${t.isHighlighted ? " ★" : ""}`,
+      ]),
+    );
+    const transferredPlayers = (recentTransfers ?? [])
+      .map((t) => playersById.get(t.playerId))
+      .filter((p): p is PlayerListItem => p !== undefined);
+
+    const growing = (filteredPlayers ?? [])
+      .filter((p) => (p.fantasyAvgTrend ?? 0) > 0)
+      .sort((a, b) => (b.fantasyAvgTrend ?? 0) - (a.fantasyAvgTrend ?? 0))
+      .slice(0, 5);
+
+    const declining = (filteredPlayers ?? [])
+      .filter((p) => (p.fantasyAvgTrend ?? 0) < 0)
+      .sort((a, b) => (a.fantasyAvgTrend ?? 0) - (b.fantasyAvgTrend ?? 0))
+      .slice(0, 5);
+
     return [
       {
         title: "Migliori occasioni",
@@ -111,24 +140,28 @@ export function DashboardPage() {
       },
       {
         title: "Trasferimenti",
-        players: [],
-        metric: () => "",
-        emptyReason: "Transfer Engine non ancora implementato (sez. 6 della spec).",
+        players: transferredPlayers,
+        metric: (p) => transferSummaryById.get(p.id) ?? "",
+        caption: "Cambi squadra rilevati al listone ufficiale. ★ = probabile nuovo titolare.",
+        emptyReason:
+          recentTransfers === null
+            ? "Nessun dato disponibile."
+            : "Nessun trasferimento rilevato finora: emergono confrontando due \"Aggiorna Database\" successivi.",
       },
       {
         title: "Giocatori in crescita",
-        players: [],
-        metric: () => "",
-        emptyReason: "Serve uno storico multi-stagione: oggi è disponibile solo l'ultima stagione completata.",
+        players: growing,
+        metric: (p) => `+${(p.fantasyAvgTrend ?? 0).toFixed(2)}`,
+        caption: "Fantamedia Serie A: ultima stagione vs precedente.",
       },
       {
         title: "Giocatori in calo",
-        players: [],
-        metric: () => "",
-        emptyReason: "Serve uno storico multi-stagione: oggi è disponibile solo l'ultima stagione completata.",
+        players: declining,
+        metric: (p) => (p.fantasyAvgTrend ?? 0).toFixed(2),
+        caption: "Fantamedia Serie A: ultima stagione vs precedente.",
       },
     ];
-  }, [filteredPlayers]);
+  }, [filteredPlayers, recentTransfers]);
 
   return (
     <div className="space-y-6">

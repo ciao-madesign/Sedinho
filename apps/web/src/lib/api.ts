@@ -17,6 +17,7 @@ import type {
   ShortlistEntryView,
   ShortlistPriority,
   SimulationResult,
+  Transfer,
 } from "@sedinho/shared";
 
 const API_BASE = "/api";
@@ -165,6 +166,7 @@ export const playersApi = {
   list: (filter: PlayersFilter = {}) =>
     api.get<PlayerListItem[]>(`/players${toQueryString({ ...filter })}`),
   get: (id: string) => api.get<PlayerDetail>(`/players/${id}`),
+  recentTransfers: (limit = 10) => api.get<Transfer[]>(`/transfers/recent?limit=${limit}`),
 };
 
 export const participantsApi = {
