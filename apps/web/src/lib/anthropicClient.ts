@@ -89,3 +89,67 @@ export async function generateCommentary(
     .join("\n")
     .trim();
 }
+
+export interface MarketNewsSource {
+  url: string;
+  title: string;
+}
+
+export interface MarketNewsResult {
+  text: string;
+  sources: MarketNewsSource[];
+}
+
+/** Notizie di mercato dell'ultima ora (non in spec, richiesto esplicitamente dall'utente, vedi
+ * CLAUDE.md §5): stesso pattern BYOK del Commento AI, ma con il tool server-side `web_search`
+ * abilitato — è Anthropic (coi crediti della chiave dell'utente) a fare la ricerca, non un
+ * connettore di scraping nostro (bloccato dalla rete di sviluppo, mai verificabile qui). Versione
+ * "basic" del tool (`web_search_20250305`, non quella con dynamic filtering): l'utente può
+ * scegliere qualunque modello dal menu, non solo quelli più recenti che supporterebbero la
+ * versione più nuova. Una sola chiamata, senza loop di continuazione: per un riepilogo breve di
+ * notizie un'unica ricerca è sufficiente, non serve gestire `pause_turn`. */
+export async function searchMarketNews(
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  userPrompt: string,
+): Promise<MarketNewsResult> {
+  const res = await fetch(`${ANTHROPIC_API_BASE}/messages`, {
+    method: "POST",
+    headers: headers(apiKey),
+    body: JSON.stringify({
+      model,
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }],
+    }),
+  });
+  if (!res.ok) throw new AnthropicApiError(res.status, await parseErrorMessage(res));
+  const body = await res.json();
+  const blocks: Array<Record<string, unknown>> = body.content ?? [];
+
+  const text = blocks
+    .filter((block) => block.type === "text")
+    .map((block) => block.text as string)
+    .join("\n")
+    .trim();
+
+  const sources: MarketNewsSource[] = [];
+  const seenUrls = new Set<string>();
+  for (const block of blocks) {
+    if (block.type !== "web_search_tool_result") continue;
+    const content = block.content;
+    if (!Array.isArray(content)) continue;
+    for (const item of content as Array<Record<string, unknown>>) {
+      if (item.type !== "web_search_result") continue;
+      const url = item.url as string | undefined;
+      const title = (item.title as string | undefined) ?? url;
+      if (!url || seenUrls.has(url)) continue;
+      seenUrls.add(url);
+      sources.push({ url, title: title ?? url });
+    }
+  }
+
+  return { text, sources };
+}

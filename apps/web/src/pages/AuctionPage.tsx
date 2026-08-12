@@ -19,6 +19,7 @@ import { ApiError, auctionApi, leaguesApi, participantsApi, playersApi } from ".
 import { PlayerRoleBadge } from "../components/PlayerRoleBadge.js";
 import { ShortlistStarButton } from "../components/ShortlistStarButton.js";
 import { AiCommentaryPanel } from "../components/AiCommentaryPanel.js";
+import { MarketNewsPanel } from "../components/MarketNewsPanel.js";
 import { ROSTER_RADAR_AXES } from "../lib/rosterRadarFormat.js";
 import { useShortlist } from "../lib/useShortlist.js";
 import { formatCredits, roleLabels } from "../lib/playerFormat.js";
@@ -1174,7 +1175,7 @@ export function AuctionPage() {
   } | null>(null);
   const [undoMessage, setUndoMessage] = useState<string | null>(null);
   const [undoLoading, setUndoLoading] = useState(false);
-  const [openDrawer, setOpenDrawer] = useState<"obiettivi" | "occasioni" | null>(null);
+  const [openDrawer, setOpenDrawer] = useState<"obiettivi" | "occasioni" | "notizie" | null>(null);
   const shortlist = useShortlist();
 
   useEffect(() => {
@@ -1393,6 +1394,17 @@ export function AuctionPage() {
               </button>
               <button
                 type="button"
+                onClick={() => setOpenDrawer(openDrawer === "notizie" ? null : "notizie")}
+                className={`whitespace-nowrap rounded border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  openDrawer === "notizie"
+                    ? "border-amber-500/50 bg-amber-500/10 text-amber-300"
+                    : "border-slate-700 text-slate-400 hover:border-amber-500/50 hover:text-amber-300"
+                }`}
+              >
+                📰 Notizie mercato
+              </button>
+              <button
+                type="button"
                 onClick={handleUndo}
                 disabled={undoLoading}
                 title="Annulla l'ultimo inserimento o l'ultima rimozione in questa asta"
@@ -1478,7 +1490,11 @@ export function AuctionPage() {
               <div className="relative z-50 flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-slate-800 bg-slate-950 p-4 shadow-2xl">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="font-medium">
-                    {openDrawer === "obiettivi" ? "★ Obiettivi" : "🎯 Occasioni"}
+                    {openDrawer === "obiettivi"
+                      ? "★ Obiettivi"
+                      : openDrawer === "occasioni"
+                        ? "🎯 Occasioni"
+                        : "📰 Notizie mercato"}
                   </h2>
                   <button
                     type="button"
@@ -1500,11 +1516,13 @@ export function AuctionPage() {
                     onRemove={shortlist.remove}
                     onSetPriority={shortlist.setPriority}
                   />
-                ) : (
+                ) : openDrawer === "occasioni" ? (
                   <PoolRankingPanel
                     auctionId={auction.id}
                     meId={auction.participants.find((p) => p.isMe)?.id}
                   />
+                ) : (
+                  <MarketNewsPanel shortlistEntries={shortlist.entries ?? []} />
                 )}
               </div>
             </div>
