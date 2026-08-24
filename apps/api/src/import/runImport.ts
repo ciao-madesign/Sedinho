@@ -10,6 +10,8 @@ import { updateTeamRotationProfiles } from "../lib/rotation/updateTeamRotationPr
 import { prisma } from "../db/prisma.js";
 import { toPlayerEvaluation } from "../lib/evaluation-mapper.js";
 import { computeTransferImpact, snapshotFromEvaluation } from "../lib/transfer/computeTransferImpact.js";
+import { snapshotHierarchyBySource, persistHierarchyChanges } from "../lib/hierarchy/updateHierarchyHistory.js";
+import { updateDelistedPlayers } from "./updateDelistedPlayers.js";
 
 /** Elenco dei connettori attivi. Aggiungere una nuova fonte = aggiungere un modulo che
  * implementa ImportConnector e registrarlo qui: l'orchestratore non va toccato altrimenti
@@ -32,13 +34,35 @@ export async function runImport(): Promise<ImportRunSummary> {
   for (const connector of connectors) {
     const t0 = Date.now();
     try {
+      // Cambi di gerarchia (sez. 4 Dashboard): istantanea PRIMA dell'upsert di questo
+      // connettore per la sua fonte — generico per qualunque connettore scriva `hierarchy`
+      // (oggi solo Fantacalciopedia), cosi' l'orchestratore non va toccato se in futuro se ne
+      // aggiunge un altro (principio "Modularità").
+      const hierarchyBefore = await snapshotHierarchyBySource(connector.id);
+
       const records = await connector.run();
-      const { upserted, errors, detectedTransfers } = await upsertPlayerImportRecords(records, {
-        source: connector.id,
-        reliability: connector.reliability,
-        canCreatePlayers: connector.canCreatePlayers,
-      });
+      const { upserted, errors, detectedTransfers, matchedPlayerIds } = await upsertPlayerImportRecords(
+        records,
+        {
+          source: connector.id,
+          reliability: connector.reliability,
+          canCreatePlayers: connector.canCreatePlayers,
+        },
+      );
       allDetectedTransfers.push(...detectedTransfers);
+
+      const hierarchyAfter = await snapshotHierarchyBySource(connector.id);
+      await persistHierarchyChanges(connector.id, hierarchyBefore, hierarchyAfter);
+
+      // Giocatori non più confermati dal listone (sez. 5, bug segnalato dall'utente: "vedo
+      // giocatori non più presenti nella lista ufficiale ma ancora presenti nel mio
+      // database"): solo la fonte autorevole sull'intera rosa (canCreatePlayers) può dire
+      // "questo giocatore non c'è più" — le altre fonti coprono solo un sottoinsieme, quindi
+      // la loro assenza da un record non significa nulla.
+      if (connector.canCreatePlayers) {
+        await updateDelistedPlayers(matchedPlayerIds);
+      }
+
       results.push({
         source: connector.id,
         status: "success",

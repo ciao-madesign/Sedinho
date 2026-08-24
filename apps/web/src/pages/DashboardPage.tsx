@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import type { LeagueConfig, PlayerListItem, Transfer } from "@sedinho/shared";
+import type { HierarchyChange, LeagueConfig, PlayerListItem, Transfer } from "@sedinho/shared";
 import { leaguesApi, playersApi } from "../lib/api.js";
 import { ImportPanel } from "../components/ImportPanel.js";
 import { PlayerRoleBadge } from "../components/PlayerRoleBadge.js";
@@ -10,7 +10,9 @@ import {
   defaultDashboardFilters,
   type DashboardFiltersState,
 } from "../components/DashboardFilters.js";
-import { formatCredits, formatPercent, setPieceLabels } from "../lib/playerFormat.js";
+import { formatCredits, formatPercent, hierarchyLabels, setPieceLabels } from "../lib/playerFormat.js";
+
+const NOT_LISTED_LABEL = "Fuori lista titolari";
 
 interface DashboardSectionData {
   title: string;
@@ -24,6 +26,7 @@ export function DashboardPage() {
   const [league, setLeague] = useState<LeagueConfig | null | undefined>(undefined);
   const [players, setPlayers] = useState<PlayerListItem[] | null>(null);
   const [recentTransfers, setRecentTransfers] = useState<Transfer[] | null>(null);
+  const [recentHierarchyChanges, setRecentHierarchyChanges] = useState<HierarchyChange[] | null>(null);
   const [filters, setFilters] = useState<DashboardFiltersState>(defaultDashboardFilters);
 
   useEffect(() => {
@@ -36,6 +39,10 @@ export function DashboardPage() {
       .recentTransfers(5)
       .then(setRecentTransfers)
       .catch(() => setRecentTransfers(null));
+    playersApi
+      .recentHierarchyChanges(5)
+      .then(setRecentHierarchyChanges)
+      .catch(() => setRecentHierarchyChanges(null));
   }, []);
 
   const teams = useMemo(() => {
@@ -43,10 +50,13 @@ export function DashboardPage() {
     return Array.from(new Set(players.map((p) => p.team).filter(Boolean))).sort();
   }, [players]);
 
-  const filteredPlayers = useMemo(
-    () => (players ? applyDashboardFilters(players, filters) : null),
-    [players, filters],
-  );
+  const filteredPlayers = useMemo(() => {
+    if (!players) return null;
+    // Un giocatore non più confermato dall'ultimo listone ufficiale non va mai suggerito nelle
+    // sezioni "occasioni"/"titolari"/ecc. — resta visibile in PlayersPage con un badge, ma qui
+    // sarebbe un consiglio attivamente fuorviante (potrebbe essere svincolato o fuori rosa).
+    return applyDashboardFilters(players, filters).filter((p) => p.delistedAt === null);
+  }, [players, filters]);
 
   const filtersActive = JSON.stringify(filters) !== JSON.stringify(defaultDashboardFilters);
 
@@ -92,6 +102,18 @@ export function DashboardPage() {
       .map((t) => playersById.get(t.playerId))
       .filter((p): p is PlayerListItem => p !== undefined);
 
+    // Cambi di gerarchia (sez. 4, storico `PlayerHierarchyChange`): stesso pattern di join di
+    // Trasferimenti — il giocatore deve rispettare i filtri attuali per comparire.
+    const hierarchyChangeSummaryById = new Map(
+      (recentHierarchyChanges ?? []).map((c) => [
+        c.playerId,
+        `${c.fromLevel ? hierarchyLabels[c.fromLevel] : NOT_LISTED_LABEL} → ${c.toLevel ? hierarchyLabels[c.toLevel] : NOT_LISTED_LABEL}`,
+      ]),
+    );
+    const hierarchyChangedPlayers = (recentHierarchyChanges ?? [])
+      .map((c) => playersById.get(c.playerId))
+      .filter((p): p is PlayerListItem => p !== undefined);
+
     const growing = (filteredPlayers ?? [])
       .filter((p) => (p.fantasyAvgTrend ?? 0) > 0)
       .sort((a, b) => (b.fantasyAvgTrend ?? 0) - (a.fantasyAvgTrend ?? 0))
@@ -128,9 +150,13 @@ export function DashboardPage() {
       },
       {
         title: "Cambi di gerarchia",
-        players: [],
-        metric: () => "",
-        emptyReason: "Richiede uno storico delle gerarchie nel tempo, non ancora tracciato.",
+        players: hierarchyChangedPlayers,
+        metric: (p) => hierarchyChangeSummaryById.get(p.id) ?? "",
+        caption: "Entrate/uscite dalla lista titolari (Fantacalciopedia) rilevate tra due import.",
+        emptyReason:
+          recentHierarchyChanges === null
+            ? "Nessun dato disponibile."
+            : "Nessun cambio rilevato finora: emerge confrontando due \"Aggiorna Database\" successivi.",
       },
       {
         title: "Infortuni",
@@ -161,7 +187,7 @@ export function DashboardPage() {
         caption: "Fantamedia Serie A: ultima stagione vs precedente.",
       },
     ];
-  }, [filteredPlayers, recentTransfers]);
+  }, [filteredPlayers, recentTransfers, recentHierarchyChanges]);
 
   return (
     <div className="space-y-6">

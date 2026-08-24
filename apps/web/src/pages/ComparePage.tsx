@@ -23,6 +23,13 @@ import type { ActiveAuctionState, PlayerListItem, PlayerRole } from "@sedinho/sh
 import { auctionApi, playersApi, type PlayerDetail } from "../lib/api.js";
 import { PlayerRoleBadge } from "../components/PlayerRoleBadge.js";
 import { ROSTER_RADAR_AXES } from "../lib/rosterRadarFormat.js";
+import { roleLabels } from "../lib/playerFormat.js";
+
+const ROLES: PlayerRole[] = ["P", "D", "C", "A"];
+
+/** Bucket per l'istogramma fantamedia (sez. 10): ampiezza 1, l'ultimo bucket raccoglie tutto
+ * quello che sta a 10+ (rarissimo ma non impossibile, mai da tagliare via silenziosamente). */
+const HISTOGRAM_BUCKET_COUNT = 11;
 
 const MAX_PLAYERS = 4;
 const PLAYER_COLORS = ["#34d399", "#60a5fa", "#f472b6", "#fbbf24"];
@@ -73,6 +80,10 @@ export function ComparePage() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [auction, setAuction] = useState<ActiveAuctionState | null | undefined>(undefined);
   const [scatterRole, setScatterRole] = useState<PlayerRole | "ALL">("ALL");
+  const [histogramRole, setHistogramRole] = useState<PlayerRole | "ALL">("ALL");
+  const [compareMode, setCompareMode] = useState<"team" | "role">("team");
+  const [compareA, setCompareA] = useState("");
+  const [compareB, setCompareB] = useState("");
 
   useEffect(() => {
     playersApi
@@ -108,6 +119,15 @@ export function ComparePage() {
     if (!pool) return [];
     return Array.from(new Set(pool.map((p) => p.team).filter(Boolean))).sort();
   }, [pool]);
+
+  // Default per il confronto squadre/ruoli: le prime due squadre disponibili, una volta sole
+  // (appena il pool è caricato) — non sovrascrive una scelta già fatta dall'utente.
+  useEffect(() => {
+    if (compareMode === "team" && teams.length > 0 && !compareA) {
+      setCompareA(teams[0]!);
+      setCompareB(teams[1] ?? teams[0]!);
+    }
+  }, [teams, compareMode, compareA]);
 
   const searchResults = useMemo(() => {
     if (!pool) return [];
@@ -235,6 +255,68 @@ export function ComparePage() {
       points: scatterData.filter((p) => p.role === role),
     }));
   }, [scatterData, scatterRole]);
+
+  // Istogramma distribuzione fantamedia (sez. 10): bucket di ampiezza 1 sull'ultima stagione
+  // Serie A disponibile per ogni giocatore, filtrabile per ruolo. Solo giocatori con fantamedia
+  // nota, mai un bucket riempito a caso per un dato mancante.
+  const histogramData = useMemo(() => {
+    const buckets = Array.from({ length: HISTOGRAM_BUCKET_COUNT }, (_, i) => ({
+      range: i === HISTOGRAM_BUCKET_COUNT - 1 ? `${i}+` : `${i}-${i + 1}`,
+      count: 0,
+    }));
+    for (const p of pool ?? []) {
+      if (histogramRole !== "ALL" && p.role !== histogramRole) continue;
+      if (p.fantasyAvg === null) continue;
+      const idx = Math.min(HISTOGRAM_BUCKET_COUNT - 1, Math.max(0, Math.floor(p.fantasyAvg)));
+      buckets[idx]!.count += 1;
+    }
+    return buckets;
+  }, [pool, histogramRole]);
+
+  // Confronto tra due squadre o due ruoli (sez. 10): aggregati su tutto il pool, non sui
+  // giocatori selezionati per il confronto sopra — è una vista indipendente, sullo stesso
+  // principio dello scatter e delle medie ruolo/squadra qui sopra.
+  const compareEntities = useMemo(
+    () => (compareMode === "team" ? teams : ROLES),
+    [compareMode, teams],
+  );
+
+  function statsForEntity(entity: string) {
+    const players = (pool ?? []).filter((p) =>
+      compareMode === "team" ? p.team === entity : p.role === entity,
+    );
+    const fantamedia = average(players.filter((p) => p.fantasyAvg !== null).map((p) => p.fantasyAvg!));
+    const valueAvg = average(players.filter((p) => p.valueScore !== null).map((p) => p.valueScore!));
+    const quotazione = average(
+      players.filter((p) => p.initialQuotation !== null).map((p) => p.initialQuotation!),
+    );
+    const starters = players.filter((p) => p.hierarchyLevel === "starter").length;
+    return {
+      count: players.length,
+      fantamedia: fantamedia ?? 0,
+      valore: valueAvg !== null ? Math.round(valueAvg * 100) : 0,
+      quotazione: quotazione ?? 0,
+      titolari: players.length > 0 ? Math.round((starters / players.length) * 100) : 0,
+    };
+  }
+
+  const compareLabel = (entity: string) =>
+    compareMode === "team" ? entity : roleLabels[entity as PlayerRole];
+
+  const compareData = useMemo(() => {
+    if (!compareA || !compareB) return [];
+    const a = statsForEntity(compareA);
+    const b = statsForEntity(compareB);
+    const labelA = compareLabel(compareA);
+    const labelB = compareLabel(compareB);
+    return [
+      { metric: "Fantamedia", [labelA]: a.fantamedia, [labelB]: b.fantamedia },
+      { metric: "Valore (%)", [labelA]: a.valore, [labelB]: b.valore },
+      { metric: "Quotazione", [labelA]: a.quotazione, [labelB]: b.quotazione },
+      { metric: "Titolari (%)", [labelA]: a.titolari, [labelB]: b.titolari },
+    ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pool, compareMode, compareA, compareB]);
 
   return (
     <div className="space-y-6">
@@ -521,11 +603,137 @@ export function ComparePage() {
         </p>
       </div>
 
+      <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-medium text-slate-300">Distribuzione fantamedia</h2>
+          <div className="flex gap-1 rounded-md border border-slate-800 bg-slate-950 p-1">
+            {ROLE_FILTERS.map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setHistogramRole(r)}
+                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                  histogramRole === r
+                    ? "bg-emerald-500 text-slate-950"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                {r === "ALL" ? "Tutti" : r}
+              </button>
+            ))}
+          </div>
+        </div>
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={histogramData}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+            <XAxis dataKey="range" stroke="#64748b" fontSize={12} />
+            <YAxis stroke="#64748b" fontSize={12} allowDecimals={false} />
+            <Tooltip
+              contentStyle={tooltipStyle}
+              formatter={(value: number) => [`${value} giocatori`, "Conteggio"]}
+            />
+            <Bar dataKey="count" fill={histogramRole === "ALL" ? "#60a5fa" : ROLE_COLORS[histogramRole]} />
+          </BarChart>
+        </ResponsiveContainer>
+        <p className="mt-2 text-xs text-slate-600">
+          Numero di giocatori per fascia di fantamedia (ultima stagione Serie A disponibile),
+          bucket di ampiezza 1. Solo giocatori con fantamedia nota.
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-medium text-slate-300">Confronto tra due squadre o ruoli</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex gap-1 rounded-md border border-slate-800 bg-slate-950 p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setCompareMode("team");
+                  setCompareA(teams[0] ?? "");
+                  setCompareB(teams[1] ?? teams[0] ?? "");
+                }}
+                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                  compareMode === "team"
+                    ? "bg-emerald-500 text-slate-950"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                Squadre
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCompareMode("role");
+                  setCompareA("P");
+                  setCompareB("D");
+                }}
+                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                  compareMode === "role"
+                    ? "bg-emerald-500 text-slate-950"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                Ruoli
+              </button>
+            </div>
+            <select
+              value={compareA}
+              onChange={(e) => setCompareA(e.target.value)}
+              className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1.5 text-xs focus:border-emerald-500 focus:outline-none"
+            >
+              {compareEntities.map((e) => (
+                <option key={e} value={e}>
+                  {compareLabel(e)}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-slate-600">vs</span>
+            <select
+              value={compareB}
+              onChange={(e) => setCompareB(e.target.value)}
+              className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1.5 text-xs focus:border-emerald-500 focus:outline-none"
+            >
+              {compareEntities.map((e) => (
+                <option key={e} value={e}>
+                  {compareLabel(e)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        {compareData.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            {compareEntities.length === 0 ? "Caricamento…" : "Seleziona due squadre o ruoli da confrontare."}
+          </p>
+        ) : (
+          <>
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={compareData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <XAxis dataKey="metric" stroke="#64748b" fontSize={12} />
+                <YAxis stroke="#64748b" fontSize={12} />
+                <Tooltip contentStyle={tooltipStyle} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey={compareLabel(compareA)} fill="#34d399" />
+                <Bar dataKey={compareLabel(compareB)} fill="#60a5fa" />
+              </BarChart>
+            </ResponsiveContainer>
+            <p className="mt-2 text-xs text-slate-600">
+              Medie sull'ultima stagione Serie A disponibile per ogni giocatore del database
+              (fantamedia, quotazione), percentile medio di valore nel ruolo e quota di titolari
+              (Fantacalciopedia). Confronto valido metrica per metrica (le 4 barre di sinistra
+              contro le 4 di destra), non tra metriche diverse (unità di misura diverse).
+            </p>
+          </>
+        )}
+      </div>
+
       <p className="text-xs text-slate-500">
         "Prezzo atteso" viene dal Player Evaluation Engine (sez. 8), non da un prezzo pagato
         realmente — nessuna asta con dati storici sufficienti a mostrare un "prezzo reale" per
-        confronto oggi. Grafici istogrammi/box plot/heatmap/distribuzioni/timeline della spec
-        (sez. 10) non sono ancora stati costruiti.
+        confronto oggi. Grafici box plot/heatmap/timeline/esportazione della spec (sez. 10) non
+        sono ancora stati costruiti.
       </p>
       </>
       )}

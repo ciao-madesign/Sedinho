@@ -82,6 +82,12 @@ model Player {
   availability          String   @default("available") // available | injured | suspended | doubtful
   estimatedRecoveryDate DateTime?
   initialQuotation      Int?     // quotazione ufficiale di partenza (listone), crediti, modalita Classic
+  // Non piu' confermato dall'ultimo listone ufficiale Fantacalcio.it/quotazioni (unica fonte
+  // canCreatePlayers, quindi l'unica autorevole sull'intera rosa Serie A): null = presente
+  // nell'ultimo giro, valorizzato = timestamp da cui manca. Mai una cancellazione — un
+  // giocatore puo' ricomparire (es. rientro da una sospensione temporanea del listone) e in tal
+  // caso il flag torna null. Vedi import/runImport.ts.
+  delistedAt            DateTime?
 
   source      String
   updatedAt   DateTime @updatedAt
@@ -90,6 +96,7 @@ model Player {
 
   seasonStats      SeasonStats[]
   hierarchies      PlayerHierarchy[]
+  hierarchyChanges PlayerHierarchyChange[]
   setPieceRoles    SetPieceRole[]
   transfers        Transfer[]
   evaluations      PlayerEvaluation[]
@@ -163,6 +170,27 @@ model PlayerHierarchy {
 
   source    String
   updatedAt DateTime @updatedAt
+
+  @@index([playerId])
+}
+
+// Storico dei cambi di gerarchia (sez. 4 Dashboard "Cambi di gerarchia"): PlayerHierarchy sopra
+// viene sovrascritta per intero ad ogni "Aggiorna Database" (deleteMany + create per fonte), non
+// tiene memoria di cosa c'era prima — questa tabella si', append-only. Una riga per cambio reale
+// rilevato (mai per ogni giocatore ad ogni import): fromLevel/toLevel `null` = il giocatore non
+// era/non e' piu' nella lista titolari di quella fonte (oggi solo Fantacalciopedia scrive
+// gerarchie, e scrive solo "starter" — vedi CLAUDE.md — quindi l'unico segnale reale disponibile
+// e' "e'/non e' piu' nella lista", non transizioni tra piu' livelli).
+model PlayerHierarchyChange {
+  id       String @id @default(cuid())
+  playerId String
+  player   Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  fromLevel String? // HierarchyLevel | null
+  toLevel   String? // HierarchyLevel | null
+
+  source String
+  date   DateTime @default(now())
 
   @@index([playerId])
 }

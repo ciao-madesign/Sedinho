@@ -27,6 +27,12 @@ interface UpsertOutcome {
    * puo' essere rilevato. L'impatto viene calcolato dopo, a fine `runImport`, confrontando la
    * `PlayerEvaluation` di prima e quella ricalcolata dopo — non qui. */
   detectedTransfers: DetectedTransfer[];
+  /** Id di tutti i giocatori trovati/creati in questo giro (uno per record processato con
+   * successo). Per la fonte `canCreatePlayers` (oggi solo Fantacalcio.it/quotazioni, l'unica
+   * autorevole sull'intero listone), `runImport.ts` confronta questo elenco con l'elenco
+   * precedente per rilevare chi e' uscito dal listone ufficiale (vedi `Player.delistedAt`) —
+   * mai una cancellazione, solo un flag onesto ("non piu' confermato dall'ultimo listone"). */
+  matchedPlayerIds: string[];
 }
 
 // injuryAbsenceRate resta fuori da questo elenco: gli altri campi sono colonne non-nullable con
@@ -68,13 +74,20 @@ export async function upsertPlayerImportRecords(
   let upserted = 0;
   const errors: string[] = [];
   const detectedTransfers: DetectedTransfer[] = [];
+  const matchedPlayerIds: string[] = [];
 
   for (const record of records) {
     try {
       const result = await findOrCreatePlayer(record, context);
       if (!result) {
+        // Due cause distinte, distinte anche nel messaggio (prima si confondevano): o questa
+        // fonte non e' autorizzata a creare giocatori nuovi (arricchimento, match assente), o
+        // e' autorizzata ma il record non ha un ruolo parsato (bug di scraping da investigare,
+        // non un giocatore davvero senza ruolo).
         errors.push(
-          `Saltato "${record.name}" (${record.team}): nessun giocatore esistente trovato (match esatto o fuzzy) e questa fonte non puo' crearne uno nuovo.`,
+          !context.canCreatePlayers
+            ? `Saltato "${record.name}" (${record.team}): nessun giocatore esistente trovato (match esatto o fuzzy) e questa fonte non puo' crearne uno nuovo.`
+            : `Saltato "${record.name}" (${record.team}): ruolo non riconosciuto/parsato da questa fonte, impossibile creare un nuovo giocatore senza ruolo.`,
         );
         continue;
       }
@@ -83,6 +96,7 @@ export async function upsertPlayerImportRecords(
       await syncHierarchy(player.id, record, context);
       await syncSetPieces(player.id, record, context);
       if (transfer) detectedTransfers.push(transfer);
+      matchedPlayerIds.push(player.id);
       upserted += 1;
     } catch (err) {
       errors.push(
@@ -91,7 +105,7 @@ export async function upsertPlayerImportRecords(
     }
   }
 
-  return { upserted, errors, detectedTransfers };
+  return { upserted, errors, detectedTransfers, matchedPlayerIds };
 }
 
 /** Riduce un nome a un set di token confrontabili tra fonti con grafie diverse: minuscolo,

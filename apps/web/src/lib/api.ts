@@ -4,6 +4,7 @@ import type {
   DecisionPoolResult,
   DecisionRecommendation,
   FinalReport,
+  HierarchyChange,
   HierarchyLevel,
   ImportRunSummary,
   LeagueConfig,
@@ -146,6 +147,7 @@ export interface PlayerDetail {
   initialQuotation: number | null;
   source: string;
   reliability: number;
+  delistedAt: string | null;
   seasonStats: PlayerSeasonStatsRow[];
   hierarchies: PlayerHierarchyRow[];
   setPieceRoles: PlayerSetPieceRow[];
@@ -167,6 +169,8 @@ export const playersApi = {
     api.get<PlayerListItem[]>(`/players${toQueryString({ ...filter })}`),
   get: (id: string) => api.get<PlayerDetail>(`/players/${id}`),
   recentTransfers: (limit = 10) => api.get<Transfer[]>(`/transfers/recent?limit=${limit}`),
+  recentHierarchyChanges: (limit = 10) =>
+    api.get<HierarchyChange[]>(`/hierarchy-changes/recent?limit=${limit}`),
 };
 
 export const participantsApi = {

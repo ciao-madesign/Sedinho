@@ -3,6 +3,7 @@ import type { PlayerListItem } from "@sedinho/shared";
 import { prisma } from "../db/prisma.js";
 import { toPlayerEvaluation } from "../lib/evaluation-mapper.js";
 import { toTransfer } from "../lib/transfer-mapper.js";
+import { toHierarchyChange } from "../lib/hierarchyChange-mapper.js";
 
 interface ListPlayersQuery {
   role?: string;
@@ -70,6 +71,7 @@ export async function playerRoutes(app: FastifyInstance) {
         confidence: latestEvaluation?.explanation.confidence ?? null,
         fantasyAvgTrend,
         fantasyAvg: latestSeason?.fantasyAvg ?? null,
+        delistedAt: player.delistedAt ? player.delistedAt.toISOString() : null,
       };
     });
   });
@@ -84,6 +86,18 @@ export async function playerRoutes(app: FastifyInstance) {
       take: limit,
     });
     return transfers.map(toTransfer);
+  });
+
+  // Cambi di gerarchia recenti (sez. 4 Dashboard "Cambi di gerarchia") — stesso pattern di
+  // /transfers/recent: solo l'evento + playerId, il frontend fa il join con la lista giocatori
+  // già caricata (e già filtrata dalla barra filtri).
+  app.get<{ Querystring: { limit?: string } }>("/hierarchy-changes/recent", async (request) => {
+    const limit = Math.min(Number(request.query.limit) || 10, 50);
+    const changes = await prisma.playerHierarchyChange.findMany({
+      orderBy: { date: "desc" },
+      take: limit,
+    });
+    return changes.map(toHierarchyChange);
   });
 
   app.get<{ Params: { id: string } }>("/players/:id", async (request, reply) => {
