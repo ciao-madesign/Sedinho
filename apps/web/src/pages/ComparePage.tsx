@@ -581,14 +581,7 @@ export function ComparePage() {
               fontSize={12}
             />
             <ZAxis range={[40, 40]} />
-            <Tooltip
-              cursor={{ strokeDasharray: "3 3" }}
-              contentStyle={tooltipStyle}
-              formatter={(value: number, key: string) =>
-                key === "quotazione" ? `${value} cr.` : `${value}%`
-              }
-              labelFormatter={() => ""}
-            />
+            <Tooltip cursor={{ strokeDasharray: "3 3" }} content={<ScatterPlayerTooltip />} />
             <Legend wrapperStyle={{ fontSize: 12 }} />
             {scatterByRole.map(({ role, points }) => (
               <Scatter key={role} name={role} data={points} fill={ROLE_COLORS[role]} />
@@ -751,6 +744,30 @@ const tooltipStyle = {
   borderRadius: 6,
   fontSize: 12,
 };
+
+/** Tooltip custom per lo scatter quotazione/valore: quello di default di Recharts mostra solo
+ * i valori numerici degli assi, non a quale giocatore si riferisce il punto — segnalato
+ * esplicitamente dall'utente ("non riesco a vedere a quale giocatore si riferisce il puntino"). */
+function ScatterPlayerTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: { payload: { nome: string; role: PlayerRole; quotazione: number; valore: number } }[];
+}) {
+  if (!active || !payload?.[0]) return null;
+  const point = payload[0].payload;
+  return (
+    <div style={tooltipStyle} className="px-2.5 py-2">
+      <p className="font-medium text-slate-200">
+        {point.nome} <span className="text-slate-500">({point.role})</span>
+      </p>
+      <p className="text-slate-400">
+        Quotazione: {point.quotazione} cr. · Valore: {point.valore}%
+      </p>
+    </div>
+  );
+}
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (

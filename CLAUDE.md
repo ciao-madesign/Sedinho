@@ -978,6 +978,30 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   metà"). `PlayerDetail.delistedAt` (tipo diverso, usato da `GET /players/:id`) e il banner in
   `PlayerDetailPage` restano invariati: quel percorso (accesso diretto a un giocatore già noto)
   continua a funzionare esattamente come prima.
+- **Layout: menu mobile a hamburger, causa reale dello spazio bianco segnalato dall'utente**:
+  screenshot da iPhone mostrava metà pagina bianca a destra — causa non un problema di viewport
+  (il meta tag c'era già) ma la `<nav>` dell'header, 8 link + "Esci" su una riga sola senza wrap:
+  su schermi stretti forzava tutto il documento più largo del viewport, e lo sfondo scuro
+  dell'header non si estendeva oltre il proprio box, lasciando lo sfondo bianco di default del
+  browser visibile nell'area di overflow (per tutta l'altezza della pagina, non solo la riga
+  header). Corretto con un pattern responsive standard: `nav` desktop nascosta sotto `sm`
+  (`hidden sm:flex`), pulsante hamburger visibile solo sotto `sm`, menu a tendina verticale che
+  sostituisce la riga quando aperto (stato locale `menuOpen`, si chiude da solo al click su un
+  link). `overflow-x-hidden` aggiunto al contenitore radice come rete di sicurezza (mai più uno
+  spazio bianco anche se qualcos'altro dovesse overfloware in futuro), non come fix primario.
+  **Tabelle senza scroll orizzontale proprio** (`PlayersPage`/`ShortlistPage`, unici due rimasti:
+  `PlayerDetailPage`/`AuctionPage` avevano già `overflow-x-auto` corretto): un `<table>` con molte
+  colonne su schermo stretto veniva schiacciato invece di scrollare — aggiunto `overflow-x-auto`
+  (o `overflow-auto` dove serviva anche verticale) + `min-w-[640px]` sul contenitore/tabella,
+  stesso pattern già in uso altrove nell'app.
+- **Scatter quotazione/valore: tooltip custom con nome giocatore**, segnalato esplicitamente
+  dall'utente ("non riesco a vedere a quale giocatore si riferisce il puntino"): il tooltip di
+  default di Recharts mostra solo i valori numerici degli assi (quotazione/valore), mai a quale
+  giocatore appartiene il punto. `ScatterPlayerTooltip` (componente locale in `ComparePage.tsx`,
+  prop `content` di `Tooltip` invece di `formatter`/`labelFormatter`) legge `payload[0].payload`
+  (già contiene `nome`/`role`, dati già presenti in `scatterData`, nessun nuovo dato necessario)
+  e mostra nome, ruolo, quotazione e valore in un riquadro coerente con lo stile degli altri
+  tooltip dell'app (`tooltipStyle` riusato).
 
 ## 6. Convenzioni di sviluppo
 

@@ -123,8 +123,8 @@ export function PlayersPage() {
 
       {players && (
         <div className="overflow-hidden rounded-lg border border-slate-800">
-          <div className="max-h-[70vh] overflow-y-auto">
-            <table className="w-full text-left text-sm">
+          <div className="max-h-[70vh] overflow-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="sticky top-0 bg-slate-900 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="w-8 px-4 py-2.5 font-medium"></th>

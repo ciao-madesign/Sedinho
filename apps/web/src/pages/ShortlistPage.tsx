@@ -156,7 +156,8 @@ export function ShortlistPage() {
             <p className="text-sm text-slate-500">Nessun obiettivo corrisponde ai filtri.</p>
           ) : (
         <div className="overflow-hidden rounded-lg border border-slate-800">
-          <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="bg-slate-900 text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="w-8 px-4 py-2.5 font-medium"></th>
@@ -259,6 +260,7 @@ export function ShortlistPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
           )}
         </>
