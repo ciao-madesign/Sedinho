@@ -495,7 +495,6 @@ function ShortlistPanel({
                     confidence: null,
                     fantasyAvgTrend: null,
                     fantasyAvg: null,
-                    delistedAt: null,
                   })
                 }
                 className="flex items-center gap-1.5"

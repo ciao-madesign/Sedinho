@@ -100,10 +100,6 @@ export interface PlayerListItem {
   /** Fantamedia (Serie A) della stagione più recente con presenze reali, `null` se nessuna
    * stagione disponibile. Usato per "giocatore vs media ruolo/squadra" in Confronti (sez. 10). */
   fantasyAvg: number | null;
-  /** Timestamp da cui il giocatore non è più confermato dall'ultimo listone ufficiale
-   * Fantacalcio.it/quotazioni, `null` se è ancora presente. Mai una cancellazione — vedi
-   * `Player.delistedAt` in schema.prisma e `import/updateDelistedPlayers.ts`. */
-  delistedAt: string | null;
 }
 
 /** Profilo di rotazione stimato per una squadra (sez. 4, "Rotazioni"). */

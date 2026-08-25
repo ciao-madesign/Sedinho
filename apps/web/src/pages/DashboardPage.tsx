@@ -58,10 +58,9 @@ export function DashboardPage() {
 
   const filteredPlayers = useMemo(() => {
     if (!players) return null;
-    // Un giocatore non più confermato dall'ultimo listone ufficiale non va mai suggerito nelle
-    // sezioni "occasioni"/"titolari"/ecc. — resta visibile in PlayersPage con un badge, ma qui
-    // sarebbe un consiglio attivamente fuorviante (potrebbe essere svincolato o fuori rosa).
-    return applyDashboardFilters(players, filters).filter((p) => p.delistedAt === null);
+    // I giocatori fuori dal listone ufficiale sono già esclusi da GET /players (vedi
+    // routes/players.ts): qui basta applicare i filtri della barra.
+    return applyDashboardFilters(players, filters);
   }, [players, filters]);
 
   const filtersActive = JSON.stringify(filters) !== JSON.stringify(defaultDashboardFilters);

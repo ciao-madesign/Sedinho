@@ -138,12 +138,7 @@ export function PlayersPage() {
               </thead>
               <tbody className="divide-y divide-slate-900">
                 {filtered.map((player) => (
-                  <tr
-                    key={player.id}
-                    className={`transition-colors hover:bg-slate-900/60 ${
-                      player.delistedAt ? "opacity-50" : ""
-                    }`}
-                  >
+                  <tr key={player.id} className="transition-colors hover:bg-slate-900/60">
                     <td className="px-4 py-2.5">
                       <ShortlistStarButton
                         active={shortlist.entryByPlayerId.has(player.id)}
@@ -198,14 +193,6 @@ export function PlayersPage() {
                         {player.availability !== "available" && (
                           <span className="rounded bg-rose-500/10 px-1.5 py-0.5 text-[11px] font-medium text-rose-400">
                             {player.availability === "injured" ? "Infortunato" : "Non disp."}
-                          </span>
-                        )}
-                        {player.delistedAt && (
-                          <span
-                            className="rounded bg-slate-700/40 px-1.5 py-0.5 text-[11px] font-medium text-slate-400"
-                            title={`Non più nel listone ufficiale dal ${new Date(player.delistedAt).toLocaleDateString("it-IT")}`}
-                          >
-                            Fuori listone
                           </span>
                         )}
                       </div>

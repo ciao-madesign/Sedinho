@@ -20,6 +20,14 @@ export async function playerRoutes(app: FastifyInstance) {
         role: role || undefined,
         team: team || undefined,
         name: search ? { contains: search, mode: "insensitive" } : undefined,
+        // Un giocatore fuori dal listone ufficiale (svincolato/uscito dalla Serie A) non deve
+        // comparire in nessuna lista/statistica/media (richiesto esplicitamente dall'utente:
+        // altera le statistiche e appesantisce le pagine senza utilità) — escluso qui, alla
+        // fonte, cosi' ogni pagina che consuma GET /players (Giocatori, Dashboard, Confronti,
+        // pannello giocatori dell'Asta) ne e' automaticamente libera senza filtrare da sola.
+        // GET /players/:id resta SENZA questo filtro: un giocatore già in una rosa d'asta o
+        // citato in un Trasferimento deve restare raggiungibile da un link diretto.
+        delistedAt: null,
       },
       orderBy: { name: "asc" },
       include: {
@@ -71,7 +79,6 @@ export async function playerRoutes(app: FastifyInstance) {
         confidence: latestEvaluation?.explanation.confidence ?? null,
         fantasyAvgTrend,
         fantasyAvg: latestSeason?.fantasyAvg ?? null,
-        delistedAt: player.delistedAt ? player.delistedAt.toISOString() : null,
       };
     });
   });
