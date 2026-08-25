@@ -4,6 +4,10 @@ import { prisma } from "../db/prisma.js";
 import { toLeagueConfig } from "../lib/league-mapper.js";
 import { toPlayerEvaluation } from "../lib/evaluation-mapper.js";
 import { simulatePlayerAuction } from "../lib/simulator/simulatePlayerAuction.js";
+import {
+  simulateRosterSeason,
+  type RosterSeasonPlayerInput,
+} from "../lib/simulator/simulateRosterSeason.js";
 import { buildActiveAuctionState } from "./auction.js";
 
 const ROLES: PlayerRole[] = ["P", "D", "C", "A"];
@@ -87,4 +91,56 @@ export async function simulatorRoutes(app: FastifyInstance) {
 
     return result;
   });
+
+  // Simulatore di rosa (sez. 15, secondo blocco): rendimento stagionale atteso per un insieme
+  // di giocatori già scelto (rosa d'asta reale o lista Obiettivi/shortlist) — il frontend decide
+  // quali playerId passare, questa rotta non ha bisogno di sapere la provenienza. Non simula
+  // l'asta: scope scelto esplicitamente con l'utente al posto di estendere anche a quello (vedi
+  // CLAUDE.md §5, stesso limite di dati comportamentali del Simulatore per-giocatore).
+  app.post<{ Body: { playerIds: string[]; iterations?: number } }>(
+    "/simulate/roster",
+    async (request, reply) => {
+      const { playerIds, iterations } = request.body;
+      if (!Array.isArray(playerIds) || playerIds.length === 0) {
+        return reply.code(400).send({ error: "playerIds deve essere un array non vuoto" });
+      }
+
+      const players = await prisma.player.findMany({
+        where: { id: { in: playerIds } },
+        include: { evaluations: { orderBy: { computedAt: "desc" }, take: 1 } },
+      });
+
+      const inputs: RosterSeasonPlayerInput[] = [];
+      let excludedCount = 0;
+      for (const player of players) {
+        const evaluation = player.evaluations[0] ? toPlayerEvaluation(player.evaluations[0]) : null;
+        const expectedFantasyPoints = evaluation?.production.expectedFantasyPoints ?? null;
+        if (expectedFantasyPoints === null) {
+          excludedCount += 1;
+          continue;
+        }
+        inputs.push({
+          playerId: player.id,
+          name: player.name,
+          role: player.role as PlayerRole,
+          expectedFantasyPoints,
+          starterProbability: evaluation?.reliability.starterProbability ?? null,
+          floorScore: evaluation?.stability.floorScore ?? null,
+          ceilingScore: evaluation?.stability.ceilingScore ?? null,
+          volatilityIndex: evaluation?.stability.volatilityIndex ?? null,
+        });
+      }
+      // playerId richiesti ma non trovati nel DB (es. rimossi) contano come esclusi anche loro.
+      excludedCount += playerIds.length - players.length;
+
+      if (inputs.length === 0) {
+        return reply
+          .code(400)
+          .send({ error: "Nessun giocatore della selezione ha una produzione attesa nota (serve FSTATS)." });
+      }
+
+      const result = simulateRosterSeason({ players: inputs, excludedCount, iterations });
+      return result;
+    },
+  );
 }

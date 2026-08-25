@@ -18,6 +18,7 @@ import type {
   ShortlistEntryView,
   ShortlistPriority,
   SimulationResult,
+  RosterSeasonSimulationResult,
   Transfer,
 } from "@sedinho/shared";
 
@@ -243,4 +244,8 @@ export const simulatorApi = {
     auctionId?: string;
     iterations?: number;
   }) => api.post<SimulationResult>("/simulate/player", body),
+  /** Simulatore di rosa (sez. 15, secondo blocco): rendimento stagionale atteso per un insieme
+   * di giocatori già scelto (rosa d'asta reale o Obiettivi/shortlist) — non simula l'asta. */
+  simulateRoster: (body: { playerIds: string[]; iterations?: number }) =>
+    api.post<RosterSeasonSimulationResult>("/simulate/roster", body),
 };
