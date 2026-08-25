@@ -5,6 +5,7 @@ import { upsertPlayerImportRecords, type DetectedTransfer } from "./upsert.js";
 import { fantacalcioItConnector } from "./connectors/fantacalcioIt.js";
 import { fstatsConnector } from "./connectors/fstats.js";
 import { fantacalciopediaConnector } from "./connectors/fantacalciopedia.js";
+import { fantacalciopediaInfortuniConnector } from "./connectors/fantacalciopediaInfortuni.js";
 import { evaluateAllPlayers } from "../lib/evaluation/evaluateAllPlayers.js";
 import { updateTeamRotationProfiles } from "../lib/rotation/updateTeamRotationProfiles.js";
 import { prisma } from "../db/prisma.js";
@@ -12,6 +13,7 @@ import { toPlayerEvaluation } from "../lib/evaluation-mapper.js";
 import { computeTransferImpact, snapshotFromEvaluation } from "../lib/transfer/computeTransferImpact.js";
 import { snapshotHierarchyBySource, persistHierarchyChanges } from "../lib/hierarchy/updateHierarchyHistory.js";
 import { updateDelistedPlayers } from "./updateDelistedPlayers.js";
+import { resetStaleAvailability } from "./updateAvailability.js";
 
 /** Elenco dei connettori attivi. Aggiungere una nuova fonte = aggiungere un modulo che
  * implementa ImportConnector e registrarlo qui: l'orchestratore non va toccato altrimenti
@@ -20,6 +22,7 @@ const connectors: ImportConnector[] = [
   fantacalcioItConnector,
   fstatsConnector,
   fantacalciopediaConnector,
+  fantacalciopediaInfortuniConnector,
 ];
 
 /** Esegue tutti i connettori registrati e fa il merge dei risultati nel DB (sez. 5,
@@ -61,6 +64,14 @@ export async function runImport(): Promise<ImportRunSummary> {
       // la loro assenza da un record non significa nulla.
       if (connector.canCreatePlayers) {
         await updateDelistedPlayers(matchedPlayerIds);
+      }
+
+      // Disponibilità (sez. "Infortuni" Dashboard): questo connettore è l'unico che scrive
+      // `availability`, ed è uno snapshot dello stato attuale, non uno storico — chi non è più
+      // in questo elenco (infortunato o squalificato) torna "available" (vedi
+      // import/updateAvailability.ts, stesso principio di updateDelistedPlayers sopra).
+      if (connector.id === "fantacalciopedia-infortuni") {
+        await resetStaleAvailability(matchedPlayerIds);
       }
 
       results.push({

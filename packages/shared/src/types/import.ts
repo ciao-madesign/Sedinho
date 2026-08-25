@@ -1,8 +1,12 @@
-import type { PlayerRole } from "./common.js";
+import type { PlayerAvailability, PlayerRole } from "./common.js";
 import type { HierarchyLevel, SetPieceType } from "./player.js";
 
 /** Identificatore di una fonte dati di import (sez. 5). Aggiungere qui ogni nuovo connettore. */
-export type ImportSourceId = "fantacalcio-it" | "fstats" | "fantacalciopedia";
+export type ImportSourceId =
+  | "fantacalcio-it"
+  | "fstats"
+  | "fantacalciopedia"
+  | "fantacalciopedia-infortuni";
 
 /** Statistiche di una stagione cosi' come riportate da una fonte, prima del merge nel DB. */
 export interface ImportedSeasonStats {
@@ -43,6 +47,12 @@ export interface PlayerImportRecord {
   seasonStats?: ImportedSeasonStats[];
   hierarchy?: { level: HierarchyLevel; reliability: number };
   setPieces?: { type: SetPieceType; probability: number }[];
+  /** Stato di disponibilità attuale (infortunato/squalificato/in dubbio), cosi' come rilevato
+   * dalla fonte in questo momento — non uno storico. Solo un connettore lo popola oggi
+   * (Fantacalciopedia/lista infortunati): `import/runImport.ts` fa una riconciliazione piena
+   * dopo ogni suo giro (chi non è più nell'elenco corrente torna "available"), altrimenti un
+   * giocatore guarito resterebbe segnato infortunato per sempre. */
+  availability?: PlayerAvailability;
 }
 
 export interface ImportSourceResult {

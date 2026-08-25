@@ -95,6 +95,7 @@ export async function upsertPlayerImportRecords(
       await syncSeasonStats(player.id, record, context);
       await syncHierarchy(player.id, record, context);
       await syncSetPieces(player.id, record, context);
+      await syncAvailability(player.id, record);
       if (transfer) detectedTransfers.push(transfer);
       matchedPlayerIds.push(player.id);
       upserted += 1;
@@ -264,6 +265,19 @@ async function syncHierarchy(
       reliability: record.hierarchy.reliability,
       source: context.source,
     },
+  });
+}
+
+/** Stato di disponibilità (sez. "Infortuni" Dashboard, non in spec originaria ma slot già
+ * esistente in schema/motori dalla prima sessione): scrive solo se la fonte lo fornisce
+ * esplicitamente per QUESTO record — la riconciliazione di chi non è più nell'elenco corrente
+ * (guarito/tornato disponibile) è fatta a parte in `import/updateAvailability.ts`, chiamata da
+ * `runImport.ts` con l'intero elenco di questo giro, non qui record per record. */
+async function syncAvailability(playerId: string, record: PlayerImportRecord) {
+  if (record.availability === undefined) return;
+  await prisma.player.update({
+    where: { id: playerId },
+    data: { availability: record.availability },
   });
 }
 

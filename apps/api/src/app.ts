@@ -9,7 +9,6 @@ import { importRoutes } from "./routes/import.js";
 import { auctionRoutes } from "./routes/auction.js";
 import { shortlistRoutes } from "./routes/shortlist.js";
 import { simulatorRoutes } from "./routes/simulator.js";
-import { debugRoutes } from "./routes/debug.js";
 
 /** Costruisce l'istanza Fastify senza avviare il listener: riusata sia dal dev locale
  * (index.ts, che chiama .listen()) sia dalla function serverless di Vercel
@@ -33,7 +32,6 @@ export async function buildApp() {
   await app.register(auctionRoutes);
   await app.register(shortlistRoutes);
   await app.register(simulatorRoutes);
-  await app.register(debugRoutes);
 
   return app;
 }

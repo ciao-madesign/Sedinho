@@ -10,7 +10,13 @@ import {
   defaultDashboardFilters,
   type DashboardFiltersState,
 } from "../components/DashboardFilters.js";
-import { formatCredits, formatPercent, hierarchyLabels, setPieceLabels } from "../lib/playerFormat.js";
+import {
+  availabilityLabels,
+  formatCredits,
+  formatPercent,
+  hierarchyLabels,
+  setPieceLabels,
+} from "../lib/playerFormat.js";
 
 const NOT_LISTED_LABEL = "Fuori lista titolari";
 
@@ -88,6 +94,13 @@ export function DashboardPage() {
       .filter((p) => p.setPieceTypes.length > 0)
       .slice(0, 5);
 
+    // Infortuni (sez. 9): stato ATTUALE (infortunato/squalificato), non uno storico — dal
+    // connettore Fantacalciopedia/infortunati (vedi CLAUDE.md §5), stessa scelta di "Titolari"
+    // sopra (la spec chiederebbe "nuovi", qui mostriamo lo stato corrente).
+    const unavailable = (filteredPlayers ?? [])
+      .filter((p) => p.availability !== "available")
+      .slice(0, 5);
+
     // Trasferimenti (sez. 6, Transfer Engine): join tra i trasferimenti recenti e il pool
     // filtrato, cosi' la barra filtri della Dashboard si applica anche qui — un trasferimento
     // di un giocatore escluso dai filtri attuali (es. ruolo/squadra) non compare.
@@ -160,9 +173,10 @@ export function DashboardPage() {
       },
       {
         title: "Infortuni",
-        players: [],
-        metric: () => "",
-        emptyReason: "Nessuna fonte di infortuni ancora collegata (candidato: lista infortunati Fantacalciopedia).",
+        players: unavailable,
+        metric: (p) => availabilityLabels[p.availability],
+        caption: "Stato attuale (Fantacalciopedia/infortunati), non uno storico.",
+        emptyReason: "Nessun giocatore infortunato/squalificato rilevato nell'ultimo \"Aggiorna Database\".",
       },
       {
         title: "Trasferimenti",
