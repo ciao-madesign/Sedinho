@@ -65,20 +65,31 @@ export async function listModels(apiKey: string): Promise<AnthropicModel[]> {
   }));
 }
 
-export async function generateCommentary(
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/** Invia l'intera cronologia della conversazione (l'API è stateless: va sempre reinviata per
+ * intero, non solo l'ultimo messaggio) e restituisce la risposta testuale di Claude. Usata sia
+ * per il primo "Genera commento" (una cronologia di un solo messaggio) sia per i turni di
+ * follow-up della chat vera e propria (richiesta esplicitamente dall'utente, non solo un
+ * pulsante "genera" one-shot) — stessa chiamata, la differenza è solo quanti messaggi contiene
+ * `messages`. */
+export async function sendChatMessage(
   apiKey: string,
   model: string,
   systemPrompt: string,
-  userPrompt: string,
+  messages: ChatMessage[],
 ): Promise<string> {
   const res = await fetch(`${ANTHROPIC_API_BASE}/messages`, {
     method: "POST",
     headers: headers(apiKey),
     body: JSON.stringify({
       model,
-      max_tokens: 350,
+      max_tokens: 600,
       system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
+      messages,
     }),
   });
   if (!res.ok) throw new AnthropicApiError(res.status, await parseErrorMessage(res));
