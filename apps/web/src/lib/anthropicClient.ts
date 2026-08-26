@@ -9,13 +9,22 @@
 const ANTHROPIC_API_BASE = "https://api.anthropic.com/v1";
 const ANTHROPIC_VERSION = "2023-06-01";
 
+/** Chiavi sessionStorage condivise tra i pannelli AI (Commento AI, Notizie di mercato). Una
+ * chiave/modello per provider (Anthropic/Gemini, vedi geminiClient.ts): non sono
+ * intercambiabili, l'utente può averne una sola delle due o entrambe. `aiProvider` ricorda
+ * quale dei due è attivo nel Commento AI — Notizie di mercato resta sempre su Anthropic (usa lo
+ * strumento server-side `web_search`, non implementato per Gemini qui, vedi geminiClient.ts). */
 export const SESSION_KEYS = {
-  apiKey: "sedinho.anthropicApiKey",
-  model: "sedinho.anthropicModel",
+  anthropicApiKey: "sedinho.anthropicApiKey",
+  anthropicModel: "sedinho.anthropicModel",
+  geminiApiKey: "sedinho.geminiApiKey",
+  geminiModel: "sedinho.geminiModel",
+  aiProvider: "sedinho.aiProvider",
   /** Timestamp dell'ultimo inserimento osservato dall'ultimo commento generato (richiesto
    * esplicitamente dall'utente: "l'AI osserva cosa è cambiato dall'ultima osservazione") —
    * in sessionStorage cosi' un refresh della pagina non fa perdere il riferimento e far
-   * ripartire il commento da zero come se fosse la prima osservazione. */
+   * ripartire il commento da zero come se fosse la prima osservazione. Condiviso tra i due
+   * provider: è lo stato dell'asta osservato, non qualcosa legato a un provider specifico. */
   lastObservedTimestamp: "sedinho.anthropicLastObservedTimestamp",
 } as const;
 

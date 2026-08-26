@@ -18,15 +18,18 @@ import { buildMarketNewsPrompt } from "../lib/buildMarketNewsPrompt.js";
  * markup, quindi costruire un connettore sarebbe stato "alla cieca" (rischio già materializzato
  * una volta con l'incidente `canCreatePlayers`, vedi §5). **Pulsante dedicato** (drawer separato
  * in `/auction`, non integrato nel pannello Commento AI): richiesto esplicitamente dall'utente,
- * per non consumare crediti extra ad ogni "Genera commento". Riusa la stessa chiave/modello del
- * Commento AI (stesso `SESSION_KEYS`, un solo BYOK per sessione d'asta). */
+ * per non consumare crediti extra ad ogni "Genera commento". **Sempre e solo Anthropic**, anche
+ * se nel Commento AI l'utente ha scelto Gemini come provider (vedi geminiClient.ts): usa lo
+ * strumento server-side `web_search`, disponibile solo lato Anthropic qui — chiave/modello
+ * Anthropic dedicati (`SESSION_KEYS.anthropicApiKey`/`anthropicModel`), indipendenti da quale
+ * provider è attivo nell'altro pannello. */
 export function MarketNewsPanel({ shortlistEntries }: { shortlistEntries: ShortlistEntryView[] }) {
   const [apiKey, setApiKey] = useState<string | null>(() =>
-    sessionStorage.getItem(SESSION_KEYS.apiKey),
+    sessionStorage.getItem(SESSION_KEYS.anthropicApiKey),
   );
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [models, setModels] = useState<AnthropicModel[]>([]);
-  const [model, setModel] = useState<string>(() => sessionStorage.getItem(SESSION_KEYS.model) ?? "");
+  const [model, setModel] = useState<string>(() => sessionStorage.getItem(SESSION_KEYS.anthropicModel) ?? "");
   const [loadingModels, setLoadingModels] = useState(false);
   const [result, setResult] = useState<MarketNewsResult | null>(null);
   const [searching, setSearching] = useState(false);
@@ -41,7 +44,7 @@ export function MarketNewsPanel({ shortlistEntries }: { shortlistEntries: Shortl
         if (!model && list.length > 0) {
           const preferred = list.find((m) => m.id.includes("sonnet")) ?? list[0];
           setModel(preferred!.id);
-          sessionStorage.setItem(SESSION_KEYS.model, preferred!.id);
+          sessionStorage.setItem(SESSION_KEYS.anthropicModel, preferred!.id);
         }
       })
       .catch((err) => {
@@ -53,7 +56,7 @@ export function MarketNewsPanel({ shortlistEntries }: { shortlistEntries: Shortl
   function handleSaveKey(e: React.FormEvent) {
     e.preventDefault();
     if (!apiKeyInput.trim()) return;
-    sessionStorage.setItem(SESSION_KEYS.apiKey, apiKeyInput.trim());
+    sessionStorage.setItem(SESSION_KEYS.anthropicApiKey, apiKeyInput.trim());
     setApiKey(apiKeyInput.trim());
     setApiKeyInput("");
   }
@@ -93,9 +96,9 @@ export function MarketNewsPanel({ shortlistEntries }: { shortlistEntries: Shortl
             Salva per questa sessione
           </button>
           <p className="text-xs text-slate-500">
-            Stessa chiave del Commento AI (BYOK): resta solo in questo browser, sparisce chiudendo
-            la scheda. Ogni ricerca consuma crediti sulla tua chiave (usa lo strumento di ricerca
-            web di Anthropic).
+            Serve una chiave Anthropic (questa funzione usa lo strumento di ricerca web di
+            Anthropic, indipendente dal provider scelto nel Commento AI): resta solo in questo
+            browser, sparisce chiudendo la scheda. Ogni ricerca consuma crediti sulla tua chiave.
           </p>
         </form>
       ) : (
@@ -105,7 +108,7 @@ export function MarketNewsPanel({ shortlistEntries }: { shortlistEntries: Shortl
               value={model}
               onChange={(e) => {
                 setModel(e.target.value);
-                sessionStorage.setItem(SESSION_KEYS.model, e.target.value);
+                sessionStorage.setItem(SESSION_KEYS.anthropicModel, e.target.value);
               }}
               disabled={loadingModels || models.length === 0}
               className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1.5 text-xs focus:border-amber-500 focus:outline-none"
