@@ -43,6 +43,27 @@ export function formatPercent(value: number | null): string {
   return `${Math.round(value * 100)}%`;
 }
 
+/** Valore decimale semplice (es. gol/assist attesi a partita, tipicamente 0-1): mai formattato
+ * come percentuale, che per questi campi non ha senso (0.25 gol/partita non è "25%"). */
+export function formatDecimal(value: number | null, decimals = 2): string {
+  if (value === null) return "—";
+  return value.toFixed(decimals);
+}
+
+/** Minuti attesi a partita: numero intero con unità esplicita. */
+export function formatMinutes(value: number | null): string {
+  if (value === null) return "—";
+  return `${Math.round(value)} min`;
+}
+
+/** Fantavoto/voto (scala ~4-8, mai una percentuale): usato per fantamedia attesa e
+ * rendimento minimo/massimo, che in precedenza venivano mostrati come percentuale (es. "688%"
+ * per una fantamedia di 6.88) — segnalato esplicitamente dall'utente come illeggibile. */
+export function formatRating(value: number | null): string {
+  if (value === null) return "—";
+  return value.toFixed(2);
+}
+
 export function formatCredits(value: number | null): string {
   if (value === null) return "—";
   return `${Math.round(value)} cr.`;

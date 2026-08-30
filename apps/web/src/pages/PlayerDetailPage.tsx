@@ -8,7 +8,10 @@ import { useShortlist } from "../lib/useShortlist.js";
 import {
   availabilityLabels,
   formatCredits,
+  formatDecimal,
+  formatMinutes,
   formatPercent,
+  formatRating,
   hierarchyLabels,
   roleLabels,
   setPieceLabels,
@@ -20,14 +23,37 @@ const directionStyles: Record<ExplanationFactor["direction"], string> = {
   neutral: "border-slate-700 bg-slate-900 text-slate-400",
 };
 
-function IndexGrid({ indices }: { indices: Record<string, number | null> }) {
+/** Non tutti gli indici sono percentuali (0..1): produzione attesa (gol/assist/minuti/
+ * fantamedia) e rendimento min/max sono valori assoluti — formattarli sempre come percentuale
+ * produceva numeri senza senso (es. "688%" per una fantamedia di 6.88), segnalato esplicitamente
+ * dall'utente. Ogni voce dichiara il proprio formato invece di ereditarne uno unico. */
+type IndexFormat = "percent" | "decimal" | "minutes" | "rating";
+
+const formatters: Record<IndexFormat, (value: number) => string> = {
+  percent: (v) => formatPercent(v),
+  decimal: (v) => formatDecimal(v),
+  minutes: (v) => formatMinutes(v),
+  rating: (v) => formatRating(v),
+};
+
+interface IndexEntry {
+  label: string;
+  value: number | null;
+  format?: IndexFormat;
+}
+
+function IndexGrid({ entries }: { entries: IndexEntry[] }) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      {Object.entries(indices).map(([key, value]) => (
-        <div key={key} className="rounded-md border border-slate-800 bg-slate-950/60 p-3">
-          <div className="text-[11px] uppercase tracking-wide text-slate-500">{key}</div>
+      {entries.map(({ label, value, format = "percent" }) => (
+        <div key={label} className="rounded-md border border-slate-800 bg-slate-950/60 p-3">
+          <div className="text-[11px] uppercase tracking-wide text-slate-500">{label}</div>
           <div className="mt-1 text-lg font-semibold tabular-nums">
-            {value === null ? <span className="text-slate-700">n/d</span> : formatPercent(value)}
+            {value === null ? (
+              <span className="text-slate-700">n/d</span>
+            ) : (
+              formatters[format](value)
+            )}
           </div>
         </div>
       ))}
@@ -150,55 +176,55 @@ export function PlayerDetailPage() {
           <section className="space-y-3">
             <h2 className="text-lg font-medium">Affidabilità</h2>
             <IndexGrid
-              indices={{
-                Titolarità: evaluation.reliability.starterProbability,
-                Affidabilità: evaluation.reliability.reliabilityScore,
-                "Rischio infortunio": evaluation.reliability.injuryRisk,
-                "Rischio turnover": evaluation.reliability.rotationRisk,
-              }}
+              entries={[
+                { label: "Titolarità", value: evaluation.reliability.starterProbability },
+                { label: "Affidabilità", value: evaluation.reliability.reliabilityScore },
+                { label: "Rischio infortunio", value: evaluation.reliability.injuryRisk },
+                { label: "Rischio turnover", value: evaluation.reliability.rotationRisk },
+              ]}
             />
           </section>
           <section className="space-y-3">
-            <h2 className="text-lg font-medium">Produzione attesa</h2>
+            <h2 className="text-lg font-medium">Produzione attesa (a partita)</h2>
             <IndexGrid
-              indices={{
-                Gol: evaluation.production.expectedGoals,
-                Assist: evaluation.production.expectedAssists,
-                Minuti: evaluation.production.expectedMinutes,
-                Fantapunti: evaluation.production.expectedFantasyPoints,
-              }}
+              entries={[
+                { label: "Gol", value: evaluation.production.expectedGoals, format: "decimal" },
+                { label: "Assist", value: evaluation.production.expectedAssists, format: "decimal" },
+                { label: "Minuti", value: evaluation.production.expectedMinutes, format: "minutes" },
+                { label: "Fantamedia", value: evaluation.production.expectedFantasyPoints, format: "rating" },
+              ]}
             />
           </section>
           <section className="space-y-3">
             <h2 className="text-lg font-medium">Bonus</h2>
             <IndexGrid
-              indices={{
-                Rigori: evaluation.bonus.penaltyPotential,
-                Punizioni: evaluation.bonus.freeKickPotential,
-                "Porta inviolata": evaluation.bonus.cleanSheetPotential,
-                Assist: evaluation.bonus.assistPotential,
-              }}
+              entries={[
+                { label: "Rigori", value: evaluation.bonus.penaltyPotential },
+                { label: "Punizioni", value: evaluation.bonus.freeKickPotential },
+                { label: "Porta inviolata", value: evaluation.bonus.cleanSheetPotential },
+                { label: "Assist", value: evaluation.bonus.assistPotential },
+              ]}
             />
           </section>
           <section className="space-y-3">
             <h2 className="text-lg font-medium">Stabilità</h2>
             <IndexGrid
-              indices={{
-                "Rendimento minimo": evaluation.stability.floorScore,
-                "Rendimento massimo": evaluation.stability.ceilingScore,
-                Costanza: evaluation.stability.consistencyIndex,
-                Volatilità: evaluation.stability.volatilityIndex,
-              }}
+              entries={[
+                { label: "Rendimento minimo", value: evaluation.stability.floorScore, format: "rating" },
+                { label: "Rendimento massimo", value: evaluation.stability.ceilingScore, format: "rating" },
+                { label: "Costanza", value: evaluation.stability.consistencyIndex },
+                { label: "Volatilità", value: evaluation.stability.volatilityIndex },
+              ]}
             />
           </section>
           <section className="space-y-3">
             <h2 className="text-lg font-medium">Convenienza</h2>
             <IndexGrid
-              indices={{
-                Valore: evaluation.value.valueScore,
-                Efficienza: evaluation.value.efficiencyIndex,
-                Opportunità: evaluation.value.opportunityScore,
-              }}
+              entries={[
+                { label: "Valore", value: evaluation.value.valueScore },
+                { label: "Efficienza", value: evaluation.value.efficiencyIndex, format: "decimal" },
+                { label: "Opportunità", value: evaluation.value.opportunityScore },
+              ]}
             />
           </section>
 

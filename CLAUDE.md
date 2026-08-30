@@ -1046,6 +1046,21 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   multi-turno) — nessun problema di correttezza trovato. Resta comunque non testato dal vivo con
   una chiave reale: il sandbox di sviluppo non raggiunge l'app di produzione (stessa limitazione
   di rete di sempre).
+- **BUG: `PlayerDetailPage` formattava OGNI indice come percentuale, anche quelli che non lo
+  sono** — segnalato dall'utente con screenshot ("688% è un dato che non ha senso"): `IndexGrid`
+  applicava `formatPercent` a tutti i valori indistintamente, corretto per indici 0..1 veri
+  (probabilità/percentili: titolarità, affidabilità, rischio, potenziali bonus, costanza/
+  volatilità, valore) ma sbagliato per valori assoluti come fantamedia (~6-7 → "688%"),
+  gol/assist attesi a partita (~0.25, coincidenza che sembrasse plausibile come "25%" ma non lo
+  è), minuti attesi (~75, non una frazione) e rendimento minimo/massimo (fantavoto, non una
+  quota). **Corretto con formattazione esplicita per campo**: `IndexGrid` ora accetta
+  `{label, value, format}` invece di un oggetto piatto, con 4 formattatori dedicati in
+  `playerFormat.ts` (`formatPercent` invariato per i veri 0..1; nuovi `formatDecimal` per gol/
+  assist attesi, `formatMinutes` per i minuti, `formatRating` per fantamedia/rendimento min-max)
+  — ogni sezione (`Affidabilità`/`Produzione attesa`/`Bonus`/`Stabilità`/`Convenienza`) dichiara
+  il formato corretto campo per campo invece di ereditarne uno unico sbagliato per metà dei casi.
+  Stesso principio già seguito nel Simulatore di rosa (vedi sopra): mai forzare un unico formato
+  "di comodo" su dati di natura diversa solo perché il componente li tratta genericamente.
 
 ## 6. Convenzioni di sviluppo
 
