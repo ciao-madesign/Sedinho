@@ -45,6 +45,16 @@ PENALITA'
 - Per ogni credito sforato all'asta verrà sottratto 1 punto sulla classifica finale
 - Ogni volta che non si schiererà la formazione verrà attribuita la sconfitta a tavolino e verrà addebitata una multa di 5€
 
+AGGIORNAMENTI AL REGOLAMENTO
+In aggiunta a quanto sopra, due novità:
+
+FORMAZIONE MANCANTE (aggiornamento)
+In caso di mancato inserimento di formazione vi saranno sempre 5€ di penalità. Verrà recuperata la formazione della giornata precedente, ma solo per la sfida con il proprio avversario di giornata. A giornata conclusa, in caso di vittoria o pareggio con la formazione recuperata, verranno assegnati 0 punti d'ufficio al trasgressore.
+
+SCAMBI (aggiornamento)
+Non vi saranno limiti in senso numerico di giocatori coinvolti, ma all'interno di uno scambio non vi potrà essere uno scarto maggiore di 10 crediti tra i valori di mercato FANTA attuali (non il prezzo d'acquisto) dei giocatori scambiati — esempio: LAUTARO 50 - MALEN 50 ammesso, LAUTARO 50 - PINAMONTI 39 non ammesso. Vale lo stesso per gli scambi multipli, confrontando la somma dei valori di ciascun lato — esempio: LAUTARO 50 + MINA 15 per MALEN 50 + BASTONI 25 ammesso, LAUTARO 50 + MINA 15 per MALEN 50 + DIMARCO 30 non ammesso.
+Per il calcolo dei punteggi si mantengono le fasce da 6 punti; in caso di punteggio nella stessa fascia, si esegue un secondo controllo interno con fasce da 4 punti, per ridurre il numero di pareggi.
+
 Questo regolamento è stato redatto dal Presidente di lega Simone Grassi, visionato ed approvato dal vice-Presidente Mirko Gagliardini.`;
 
 /** Bozza precompilata a partire dal regolamento reale "Travedona Serie A", interamente
@@ -73,8 +83,17 @@ export const defaultLeagueDraft: LeagueDraft = {
       id: "rule-malus-missing-lineup",
       category: "malus",
       description:
-        "Formazione non schierata: sconfitta a tavolino e multa di 5€.",
-      effect: { type: "missing-lineup", result: "forfeit-loss", fineEuro: 5 },
+        "Formazione non inserita: multa fissa di 5€. Per la sfida con l'avversario di giornata si " +
+        "recupera la formazione della giornata precedente (solo per quella sfida); a giornata " +
+        "conclusa, se con la formazione recuperata il trasgressore avrebbe vinto o pareggiato, gli " +
+        "vengono assegnati 0 punti d'ufficio.",
+      effect: {
+        type: "missing-lineup",
+        fineEuro: 5,
+        recoveredLineupSource: "previous-matchday",
+        recoveredLineupScope: "head-to-head-only",
+        ifWinOrDrawWithRecoveredLineup: "assign-zero-points",
+      },
     },
     {
       id: "rule-malus-late-payment",
@@ -119,12 +138,32 @@ export const defaultLeagueDraft: LeagueDraft = {
       id: "rule-market-trade-window",
       category: "market",
       description:
-        "Sessioni di scambio aperte durante ogni sosta nazionale e per tutto Gennaio (escluse le giornate in corso); il valore del giocatore scambiato resta invariato.",
+        "Sessioni di scambio aperte durante ogni sosta nazionale e per tutto Gennaio (escluse le " +
+        "giornate in corso). Nessun limite numerico di giocatori coinvolti, ma lo scarto tra i " +
+        "valori di mercato FANTA attuali (non il prezzo d'acquisto) non può superare i 10 crediti " +
+        "— vale anche per gli scambi multipli, confrontando la somma dei valori di ciascun lato.",
       effect: {
         type: "trade-window",
         periods: ["international-breaks", "January"],
         excludeMatchdays: true,
-        valueRule: "unchanged",
+        playerCountLimit: null,
+        maxValueGapCredits: 10,
+        valueBasis: "current-fanta-market-value",
+        multiPlayerRule: "compare-side-sums",
+      },
+    },
+    {
+      id: "rule-modifier-scoring-tiebreak",
+      category: "modifier",
+      description:
+        "Il punteggio di giornata si calcola per fasce da 6 punti; in caso di parità di fascia si " +
+        "esegue un secondo controllo interno con fasce più strette da 4 punti, per ridurre il " +
+        "numero di pareggi.",
+      effect: {
+        type: "score-bracket-tiebreak",
+        primaryBracketSize: 6,
+        secondaryBracketSize: 4,
+        purpose: "reduce-draws",
       },
     },
     {

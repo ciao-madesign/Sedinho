@@ -1061,6 +1061,26 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   il formato corretto campo per campo invece di ereditarne uno unico sbagliato per metà dei casi.
   Stesso principio già seguito nel Simulatore di rosa (vedi sopra): mai forzare un unico formato
   "di comodo" su dati di natura diversa solo perché il componente li tratta genericamente.
+- **Regolamento "Travedona Serie A": due novità aggiunte al testo di riferimento**, richieste
+  esplicitamente dall'utente (formazione mancante aggiornata: recupero della formazione della
+  giornata precedente solo per lo scontro diretto, 0 punti d'ufficio al trasgressore in caso di
+  vittoria/pareggio con quella formazione, multa fissa 5€; scambi: nessun limite numerico ma
+  scarto massimo 10 crediti tra valori di mercato FANTA attuali — anche multipli, confrontando la
+  somma dei due lati — più il criterio di spareggio punteggio a fasce da 6, con un secondo
+  controllo a fasce da 4 in caso di parità). Aggiornato `TRAVEDONA_RULES_TEXT` (nuova sezione
+  "AGGIORNAMENTI AL REGOLAMENTO" in fondo al testo, senza toccare le sezioni originali — l'utente
+  ha inquadrato queste come un'aggiunta, non una riscrittura) e `parsedRules` in
+  `defaultDraft.ts`: aggiornati `rule-malus-missing-lineup` e `rule-market-trade-window` per
+  riflettere le regole nuove, aggiunto `rule-modifier-scoring-tiebreak` per il criterio di
+  spareggio. **Attenzione allo scope di questa modifica**: `defaultDraft.ts` è solo la bozza
+  precompilata che il Setup Wizard mostra per una lega NON ancora configurata — l'utente ha già
+  una `League` reale salvata su Neon (l'ha usata per l'asta), quindi aprire `/setup` oggi carica
+  quella riga esistente in modalità modifica, non questa bozza. Questo commit da solo non cambia
+  nulla nella sua lega live: resta comunque il riferimento testuale corretto per il regolamento,
+  e serve come bozza pronta se in futuro va ricreata una lega da zero — ma l'utente deve
+  comunque aprire `/setup` e aggiungere le stesse due regole a mano nella propria lega esistente
+  perché abbiano effetto reale (nessuna scrittura diretta sul DB di produzione possibile da qui,
+  stessa limitazione di rete di sempre).
 
 ## 6. Convenzioni di sviluppo
 
