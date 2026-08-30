@@ -39,14 +39,26 @@ export interface SimulationResult {
   explanation: Explanation;
 }
 
-/** Punteggio medio atteso a fine stagione per un giocatore della rosa simulata (sez. 15,
- * secondo blocco: "rendimento della rosa", non l'asta). Somma dei fantavoto simulati sulle
- * giornate in cui il giocatore gioca (probabilità di titolarità), non un dato misurato. */
+/** Rendimento medio atteso per un giocatore della rosa simulata (sez. 15, secondo blocco:
+ * "rendimento della rosa", non l'asta). Segnalato esplicitamente dall'utente: la sola somma
+ * stagionale (`expectedSeasonPoints`, un numero a 3 cifre) diceva poco a colpo d'occhio —
+ * `expectedFantasyAvg`/`expectedBonusMalus` sono sulla stessa scala "a partita" con cui un
+ * fantallenatore legge normalmente una fantamedia (~4-8), molto più leggibile. */
 export interface RosterSeasonPlayerOutcome {
   playerId: string;
   name: string;
   role: PlayerRole;
+  /** Somma dei fantavoto simulati sulle giornate in cui il giocatore gioca (probabilità di
+   * titolarità), non un dato misurato — utile come confronto complessivo tra giocatori, meno
+   * come lettura "a colpo d'occhio" (vedi nota sopra). */
   expectedSeasonPoints: number;
+  /** Fantamedia attesa a partita (voto + bonus/malus), la stessa identica cifra già mostrata
+   * altrove nell'app (`ProductionIndices.expectedFantasyPoints`, da FSTATS) — non ricalcolata
+   * dalla simulazione, solo passata attraverso per restare sulla scala "a partita". */
+  expectedFantasyAvg: number;
+  /** Bonus/malus medio a partita (`expectedFantasyAvg` meno il voto puro medio dell'ultima
+   * stagione nota), `null` se il voto puro non è disponibile per nessuna stagione. */
+  expectedBonusMalus: number | null;
 }
 
 /** Risultato del Simulatore di rosa (sez. 15, secondo blocco): Monte Carlo su un intero
@@ -67,7 +79,11 @@ export interface RosterSeasonSimulationResult {
    * (nessuna `PlayerEvaluation`/`SeasonStats` disponibile) — mai stimati a caso. */
   playersExcluded: number;
   totalPointsRange: SimulatedPriceRange;
-  /** Punteggio medio atteso per ogni giocatore incluso, per un grafico di dettaglio per rosa. */
+  /** Media di `expectedFantasyAvg` su tutti i giocatori inclusi: un singolo numero sulla scala
+   * "a partita" (~4-8) invece della somma stagionale aggregata — segnalato esplicitamente
+   * dall'utente come lettura più immediata di "quanto rende in media questo gruppo". */
+  averageFantasyAvg: number;
+  /** Rendimento medio atteso per ogni giocatore incluso, per un grafico di dettaglio per rosa. */
   perPlayer: RosterSeasonPlayerOutcome[];
   explanation: Explanation;
 }

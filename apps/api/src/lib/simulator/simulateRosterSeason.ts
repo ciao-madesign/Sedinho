@@ -13,6 +13,11 @@ export interface RosterSeasonPlayerInput {
   role: PlayerRole;
   /** Media fantavoto a partita (ProductionIndices.expectedFantasyPoints, da FSTATS). */
   expectedFantasyPoints: number;
+  /** Voto puro medio a partita (SeasonStats.averageRating dell'ultima stagione Serie A nota),
+   * `null` se non disponibile — usato solo per calcolare il bonus/malus medio
+   * (`expectedFantasyPoints - expectedRating`), segnalato esplicitamente dall'utente come
+   * lettura più utile della sola fantamedia aggregata. */
+  expectedRating: number | null;
   starterProbability: number | null;
   floorScore: number | null;
   ceilingScore: number | null;
@@ -113,7 +118,17 @@ export function simulateRosterSeason(input: SimulateRosterSeasonInput): RosterSe
     name: p.name,
     role: p.role,
     expectedSeasonPoints: Number((perPlayerSeasonSum.get(p.playerId) ?? 0).toFixed(1)),
+    expectedFantasyAvg: Number(p.expectedFantasyPoints.toFixed(2)),
+    expectedBonusMalus:
+      p.expectedRating !== null ? Number((p.expectedFantasyPoints - p.expectedRating).toFixed(2)) : null,
   }));
+
+  const averageFantasyAvg =
+    players.length > 0
+      ? Number(
+          (players.reduce((sum, p) => sum + p.expectedFantasyPoints, 0) / players.length).toFixed(2),
+        )
+      : 0;
 
   const factors: ExplanationFactor[] = [
     {
@@ -142,6 +157,14 @@ export function simulateRosterSeason(input: SimulateRosterSeasonInput): RosterSe
         "(floor/ceiling/volatilità), non tra partite — usata per modulare una deviazione tipica " +
         "di base, non un dato calibrato sul vero andamento settimanale.",
     },
+    {
+      label: "Bonus/malus medio",
+      direction: "neutral",
+      weight: 0,
+      detail:
+        "Differenza tra fantamedia attesa e voto puro medio dell'ultima stagione Serie A nota — " +
+        "`null` per i giocatori senza voto puro disponibile (nessuna doppia stagione FSTATS).",
+    },
   ];
 
   if (excludedCount > 0) {
@@ -159,7 +182,8 @@ export function simulateRosterSeason(input: SimulateRosterSeasonInput): RosterSe
       players.length > 0 ? Number((players.length / (players.length + excludedCount)).toFixed(2)) : 0,
     summary:
       `Simulazione su ${iterations} campionati (${MATCHDAYS} giornate ciascuno) per ${players.length} ` +
-      `giocatori: punti totali di rosa mediani ${totalPointsRange.p50} (range ${totalPointsRange.p10}-${totalPointsRange.p90}).`,
+      `giocatori: fantamedia media di gruppo ${averageFantasyAvg}, punti totali di rosa mediani ` +
+      `${totalPointsRange.p50} (range ${totalPointsRange.p10}-${totalPointsRange.p90}).`,
   };
 
   return {
@@ -168,6 +192,7 @@ export function simulateRosterSeason(input: SimulateRosterSeasonInput): RosterSe
     playersIncluded: players.length,
     playersExcluded: excludedCount,
     totalPointsRange,
+    averageFantasyAvg,
     perPlayer,
     explanation,
   };

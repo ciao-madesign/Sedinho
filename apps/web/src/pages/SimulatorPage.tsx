@@ -171,9 +171,15 @@ export function SimulatorPage() {
     }
   }
 
+  // Segnalato esplicitamente dall'utente: la somma stagionale (centinaia di punti) diceva poco
+  // a colpo d'occhio — il grafico principale mostra la fantamedia attesa A PARTITA (~4-8, stessa
+  // scala con cui un fantallenatore legge normalmente una fantamedia), non il totale stagionale.
   const rosterChartData = rosterResult?.perPlayer.map((p) => ({
     nome: p.name,
-    "Punti attesi": p.expectedSeasonPoints,
+    role: p.role,
+    "Fantamedia attesa": p.expectedFantasyAvg,
+    bonusMalus: p.expectedBonusMalus,
+    puntiStagione: p.expectedSeasonPoints,
   }));
 
   const chartData = result?.winProbabilityByBudget.map((o) => ({
@@ -392,24 +398,46 @@ export function SimulatorPage() {
             </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatTile label="p10" value={`${rosterResult.totalPointsRange.p10} pt.`} />
-            <StatTile label="Mediano" value={`${rosterResult.totalPointsRange.p50} pt.`} highlight />
-            <StatTile label="p90" value={`${rosterResult.totalPointsRange.p90} pt.`} />
-            <StatTile label="Media" value={`${rosterResult.totalPointsRange.mean} pt.`} />
+          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.04] p-4 text-center">
+            <div className="text-[11px] uppercase tracking-wide text-slate-500">
+              Fantamedia media di gruppo (a partita)
+            </div>
+            <div className="mt-1 text-2xl font-semibold text-emerald-400">
+              {rosterResult.averageFantasyAvg}
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              Media di quanto ogni giocatore incluso rende a partita — stessa scala con cui leggi
+              una fantamedia normale (~4-8), non un totale aggregato.
+            </p>
+          </div>
+
+          <div>
+            <p className="mb-1.5 text-[11px] uppercase tracking-wide text-slate-500">
+              Punti totali di rosa (somma sull'intera stagione, tutti i giocatori inclusi)
+            </p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <StatTile label="p10" value={`${rosterResult.totalPointsRange.p10} pt.`} />
+              <StatTile label="Mediano" value={`${rosterResult.totalPointsRange.p50} pt.`} highlight />
+              <StatTile label="p90" value={`${rosterResult.totalPointsRange.p90} pt.`} />
+              <StatTile label="Media" value={`${rosterResult.totalPointsRange.mean} pt.`} />
+            </div>
           </div>
 
           <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-            <h2 className="mb-3 text-sm font-medium text-slate-300">Punti attesi per giocatore</h2>
+            <h2 className="mb-3 text-sm font-medium text-slate-300">Fantamedia attesa per giocatore</h2>
             <ResponsiveContainer width="100%" height={Math.max(220, rosterResult.perPlayer.length * 28)}>
               <BarChart data={rosterChartData} layout="vertical" margin={{ left: 24 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                 <XAxis type="number" stroke="#64748b" fontSize={12} />
                 <YAxis type="category" dataKey="nome" stroke="#64748b" fontSize={11} width={110} />
-                <Tooltip contentStyle={tooltipStyle} />
-                <Bar dataKey="Punti attesi" fill="#34d399" />
+                <Tooltip content={<RosterPlayerTooltip />} />
+                <Bar dataKey="Fantamedia attesa" fill="#34d399" />
               </BarChart>
             </ResponsiveContainer>
+            <p className="mt-2 text-xs text-slate-600">
+              Passa il mouse su una barra per vedere anche voto puro, bonus/malus medio e il
+              totale stagionale di quel giocatore.
+            </p>
           </div>
 
           <div className="space-y-1 rounded-lg border border-slate-800 bg-slate-900 p-4">
@@ -432,6 +460,42 @@ export function SimulatorPage() {
       </p>
       </>
       )}
+    </div>
+  );
+}
+
+/** Tooltip custom per il grafico "Fantamedia attesa per giocatore" (Simulatore di rosa): oltre
+ * alla fantamedia già sulla barra, mostra voto puro/bonus-malus medio e il totale stagionale —
+ * segnalato esplicitamente dall'utente come lettura utile, senza dover affollare il grafico
+ * principale con più barre per riga. */
+function RosterPlayerTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: {
+    payload: {
+      nome: string;
+      role: string;
+      "Fantamedia attesa": number;
+      bonusMalus: number | null;
+      puntiStagione: number;
+    };
+  }[];
+}) {
+  if (!active || !payload?.[0]) return null;
+  const p = payload[0].payload;
+  const votoPuro = p.bonusMalus !== null ? Number((p["Fantamedia attesa"] - p.bonusMalus).toFixed(2)) : null;
+  return (
+    <div style={tooltipStyle} className="px-2.5 py-2">
+      <p className="font-medium text-slate-200">
+        {p.nome} <span className="text-slate-500">({p.role})</span>
+      </p>
+      <p className="text-slate-400">Fantamedia attesa: {p["Fantamedia attesa"]}</p>
+      <p className="text-slate-400">
+        Voto puro: {votoPuro ?? "—"} · Bonus/malus: {p.bonusMalus ?? "—"}
+      </p>
+      <p className="text-slate-500">Totale stagione: {p.puntiStagione} pt.</p>
     </div>
   );
 }

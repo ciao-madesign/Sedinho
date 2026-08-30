@@ -107,7 +107,17 @@ export async function simulatorRoutes(app: FastifyInstance) {
 
       const players = await prisma.player.findMany({
         where: { id: { in: playerIds } },
-        include: { evaluations: { orderBy: { computedAt: "desc" }, take: 1 } },
+        include: {
+          evaluations: { orderBy: { computedAt: "desc" }, take: 1 },
+          // Voto puro medio (non la fantamedia) dell'ultima stagione Serie A nota, solo per
+          // calcolare il bonus/malus medio a partita (richiesto esplicitamente dall'utente,
+          // vedi lib/simulator/simulateRosterSeason.ts) — non serve altro da SeasonStats qui.
+          seasonStats: {
+            where: { competition: "Serie A" },
+            orderBy: { season: "desc" },
+            take: 1,
+          },
+        },
       });
 
       const inputs: RosterSeasonPlayerInput[] = [];
@@ -124,6 +134,7 @@ export async function simulatorRoutes(app: FastifyInstance) {
           name: player.name,
           role: player.role as PlayerRole,
           expectedFantasyPoints,
+          expectedRating: player.seasonStats[0]?.averageRating ?? null,
           starterProbability: evaluation?.reliability.starterProbability ?? null,
           floorScore: evaluation?.stability.floorScore ?? null,
           ceilingScore: evaluation?.stability.ceilingScore ?? null,
