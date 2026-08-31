@@ -14,6 +14,17 @@ interface AiModel {
   displayName: string;
 }
 
+/** Un turno mostrato in chat. Distinto da `ChatMessage` (lib/*Client.ts): quello è l'esatto
+ * payload inviato all'API (deve contenere il JSON completo dello stato asta per dare contesto
+ * al modello), questo è solo cosa l'utente vede — segnalato esplicitamente dall'utente ("non mi
+ * serve vedere il json di tutto lo stato, mi basta solo il commento"). Un turno "generated" (da
+ * "Genera commento") non mostra il prompt utente automatico, solo la risposta del modello. */
+interface DisplayTurn {
+  role: "user" | "assistant";
+  content: string;
+  kind: "generated" | "typed";
+}
+
 /** Un solo client "attivo" alla volta, scelto dal provider corrente — entrambi espongono la
  * stessa forma (listModels/sendChatMessage), il resto del componente non deve sapere quale dei
  * due sta usando. */
@@ -72,6 +83,9 @@ export function AiCommentaryPanel({
   const [model, setModel] = useState<string>(() => sessionStorage.getItem(keysFor(provider).model) ?? "");
   const [loadingModels, setLoadingModels] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  // Cosa viene effettivamente mostrato in UI (vedi DisplayTurn sopra) — separato da
+  // `chatHistory`, che resta l'esatta cronologia inviata all'API ad ogni turno.
+  const [displayLog, setDisplayLog] = useState<DisplayTurn[]>([]);
   const [followUp, setFollowUp] = useState("");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +101,7 @@ export function AiCommentaryPanel({
     setModel(sessionStorage.getItem(keysFor(next).model) ?? "");
     setModels([]);
     setChatHistory([]); // i due provider non condividono contesto/cronologia
+    setDisplayLog([]);
     setError(null);
   }
 
@@ -129,11 +144,13 @@ export function AiCommentaryPanel({
     setModels([]);
     setModel("");
     setChatHistory([]);
+    setDisplayLog([]);
     setLastObservedTimestamp(null);
   }
 
   function handleNewConversation() {
     setChatHistory([]);
+    setDisplayLog([]);
     setError(null);
   }
 
@@ -146,6 +163,10 @@ export function AiCommentaryPanel({
       const nextHistory: ChatMessage[] = [...chatHistory, { role: "user", content: user }];
       const reply = await clientFor(provider).sendChatMessage(apiKey, model, system, nextHistory);
       setChatHistory([...nextHistory, { role: "assistant", content: reply }]);
+      // In UI non mostriamo il prompt automatico (contiene il JSON completo dello stato asta,
+      // richiesto dal modello per il contesto ma non utile da leggere per l'utente — vedi
+      // DisplayTurn) — solo la risposta, con l'etichetta "generated" per uno stile distinto.
+      setDisplayLog((prev) => [...prev, { role: "assistant", content: reply, kind: "generated" }]);
       // Segna come "osservato" il momento di questa generazione: il prossimo commento
       // partirà da qui per calcolare cosa è cambiato nel frattempo.
       const newest = auction.entries[0]?.timestamp ?? new Date().toISOString();
@@ -168,8 +189,12 @@ export function AiCommentaryPanel({
     try {
       const nextHistory: ChatMessage[] = [...chatHistory, { role: "user", content: question }];
       setChatHistory(nextHistory);
+      // Un follow-up è testo scritto a mano dall'utente (mai un JSON generato): va mostrato
+      // per intero, a differenza del turno automatico di "Genera commento" sopra.
+      setDisplayLog((prev) => [...prev, { role: "user", content: question, kind: "typed" }]);
       const reply = await clientFor(provider).sendChatMessage(apiKey, model, SYSTEM_PROMPT, nextHistory);
       setChatHistory([...nextHistory, { role: "assistant", content: reply }]);
+      setDisplayLog((prev) => [...prev, { role: "assistant", content: reply, kind: "typed" }]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Errore imprevisto.");
     } finally {
@@ -275,9 +300,9 @@ export function AiCommentaryPanel({
             </p>
           )}
 
-          {chatHistory.length > 0 && (
+          {displayLog.length > 0 && (
             <div className="max-h-72 space-y-2 overflow-y-auto rounded-md border border-violet-500/20 bg-slate-950/40 p-3">
-              {chatHistory.map((msg, i) => (
+              {displayLog.map((msg, i) => (
                 <p
                   key={i}
                   className={`whitespace-pre-line text-sm ${
@@ -286,7 +311,7 @@ export function AiCommentaryPanel({
                       : "rounded-md bg-violet-500/[0.06] p-2 text-slate-200"
                   }`}
                 >
-                  {msg.role === "user" ? "Tu: " : ""}
+                  {msg.role === "user" ? "Tu: " : msg.kind === "generated" ? "Commento: " : ""}
                   {msg.content}
                 </p>
               ))}

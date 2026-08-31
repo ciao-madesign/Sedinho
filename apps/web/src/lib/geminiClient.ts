@@ -81,7 +81,10 @@ export async function sendChatMessage(
         role: m.role === "assistant" ? "model" : "user",
         parts: [{ text: m.content }],
       })),
-      generationConfig: { maxOutputTokens: 600 },
+      // 600 tagliava a metà frase le risposte più lunghe (segnalato esplicitamente
+      // dall'utente: "le risposte sono sempre troncate") — stesso tetto largo di
+      // anthropicClient.ts, la brevità resta guidata dal SYSTEM_PROMPT, non da un taglio qui.
+      generationConfig: { maxOutputTokens: 4096 },
     }),
   });
   if (!res.ok) throw new GeminiApiError(res.status, await parseErrorMessage(res));

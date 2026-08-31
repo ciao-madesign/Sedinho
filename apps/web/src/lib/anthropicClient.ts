@@ -96,7 +96,10 @@ export async function sendChatMessage(
     headers: headers(apiKey),
     body: JSON.stringify({
       model,
-      max_tokens: 600,
+      // 600 tagliava a metà frase le risposte più lunghe (segnalato esplicitamente
+      // dall'utente: "le risposte sono sempre troncate") — alzato a un tetto largo,
+      // la brevità resta comunque guidata dal SYSTEM_PROMPT, non da un taglio secco qui.
+      max_tokens: 4096,
       system: systemPrompt,
       messages,
     }),
@@ -139,7 +142,9 @@ export async function searchMarketNews(
     headers: headers(apiKey),
     body: JSON.stringify({
       model,
-      max_tokens: 1024,
+      // Stesso motivo del tetto alzato in sendChatMessage sopra: un limite basso tagliava le
+      // risposte a metà, specialmente con più fonti citate dal tool di ricerca.
+      max_tokens: 4096,
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }],

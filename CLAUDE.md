@@ -1081,6 +1081,37 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   comunque aprire `/setup` e aggiungere le stesse due regole a mano nella propria lega esistente
   perché abbiano effetto reale (nessuna scrittura diretta sul DB di produzione possibile da qui,
   stessa limitazione di rete di sempre).
+- **BUG: Commento AI, due difetti segnalati dall'utente con un test reale (prima chiave Gemini
+  usata dal vivo in questa sessione)**: (1) "non mi serve vedere il json di tutto lo stato, mi
+  basta solo il commento" — `AiCommentaryPanel.tsx` usava lo stesso array `chatHistory` sia come
+  payload esatto da inviare all'API (deve contenere il JSON completo dello stato asta, il
+  modello ne ha bisogno per il contesto) sia come sorgente letterale del rendering in chat,
+  quindi il prompt automatico di "Genera commento" (centinaia di righe di JSON) compariva per
+  intero nella bolla "Tu: ...". Corretto separando le due cose: `chatHistory` (invariato, va
+  ancora all'API per intero ad ogni turno) da un nuovo `displayLog: DisplayTurn[]` che l'utente
+  vede davvero — un turno "generated" (da "Genera commento") mostra solo la risposta del
+  modello, mai il prompt; un turno "typed" (domanda di follow-up scritta a mano) mostra sia la
+  domanda che la risposta, perché lì il testo è già umano-leggibile. (2) Le risposte apparivano
+  troncate a metà frase ("le risposte sono sempre troncate", segnalato subito dopo): causa reale,
+  `max_tokens`/`maxOutputTokens` era fissato a `600` in `sendChatMessage` (sia
+  `anthropicClient.ts` che `geminiClient.ts`) — un tetto rigido che tagliava la risposta a
+  metà non appena il modello superava quella soglia, indipendentemente da quanto avesse ancora
+  da dire. Alzato a `4096` per entrambi i provider (e per `searchMarketNews`, stesso problema
+  potenziale con più fonti citate) — non rimuove un "limite di caratteri" in senso stretto (le
+  API restano token-based, non ne esiste uno regolabile a piacere), ma sposta il tetto ben oltre
+  la lunghezza di un commento reale, cosa che l'utente intendeva con "rimuovi il limite di
+  caratteri". Rimosso anche il vincolo "massimo 80 parole" dal `SYSTEM_PROMPT`
+  (`buildAuctionCommentaryPrompt.ts`), che con un modello che tende a essere via via più
+  loquace poteva comunque contribuire alla sensazione di risposta tagliata: sostituito con
+  un'istruzione esplicita di completare sempre il ragionamento senza troncare, restando comunque
+  diretto e senza premesse superflue (non un liberi tutti verso risposte lunghissime, solo
+  nessun tetto artificiale). **Osservazione separata sulla stessa segnalazione, comunicata
+  all'utente ma non un bug di Sedinho**: nello stesso test, Gemini ha risposto "tutti i manager
+  hanno il budget integro di 50" quando il JSON inviato (verificato riga per riga dal payload
+  incollato dall'utente) conteneva correttamente `budgetResiduo: 500` per ogni partecipante —
+  un errore di generazione del modello, non un bug nella costruzione del prompt o nell'invio dei
+  dati (nessuna trasformazione numerica avviene lato nostro codice, ne' in
+  `buildAuctionCommentaryPrompt.ts` ne' in `geminiClient.ts`).
 
 ## 6. Convenzioni di sviluppo
 
