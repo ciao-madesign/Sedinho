@@ -401,7 +401,11 @@ function PlayersBrowserPanel({
 /** Sezione "Obiettivi" (shortlist) tenuta in vista durante l'asta live, richiesta
  * esplicitamente dall'utente: mostra i giocatori marcati come obiettivo con lo stesso stato di
  * vendita in tempo reale del pannello a sinistra (stesso `soldMap`, ricalcolato ad ogni
- * inserimento), cliccabili per selezionarli nel form di assegnazione. */
+ * inserimento), cliccabili per selezionarli nel form di assegnazione. **Filtro per ruolo**
+ * (richiesto esplicitamente dall'utente: "vedere le prime scelte per l'attacco separate dalla
+ * difesa e così via") — questo pannello compatto nel drawer non aveva ancora nessun filtro
+ * (solo l'ordinamento automatico per priorità già presente), a differenza di `/shortlist` che
+ * ha già ruolo/squadra/priorità/ordinamento completi. */
 function ShortlistPanel({
   entries,
   soldMap,
@@ -417,6 +421,8 @@ function ShortlistPanel({
   onRemove: (entryId: string) => void;
   onSetPriority: (entryId: string, priority: ShortlistPriority | null) => void;
 }) {
+  const [roleFilter, setRoleFilter] = useState<PlayerRole | "ALL">("ALL");
+
   if (entries.length === 0) {
     return (
       <p className="text-sm text-slate-500">
@@ -425,13 +431,32 @@ function ShortlistPanel({
     );
   }
 
+  const filtered = entries.filter((e) => roleFilter === "ALL" || e.player.role === roleFilter);
+
   // Priorità (1 = prima scelta) prima, poi chi non ha ancora una priorità assegnata — cosi' la
   // shortlist si riordina da sola man mano che l'utente la imposta, senza un controllo di
   // ordinamento separato in questo pannello compatto (a differenza di /shortlist).
-  const sorted = [...entries].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+  const sorted = [...filtered].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
 
   return (
     <div className="rounded-lg border border-amber-500/20 bg-amber-500/[0.03] p-3">
+      <div className="mb-2 flex gap-1 rounded-md border border-slate-800 bg-slate-950 p-1 w-fit">
+        {ROLE_FILTERS.map((r) => (
+          <button
+            key={r}
+            type="button"
+            onClick={() => setRoleFilter(r)}
+            className={`rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+              roleFilter === r ? "bg-amber-500 text-slate-950" : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            {r === "ALL" ? "Tutti" : r}
+          </button>
+        ))}
+      </div>
+      {sorted.length === 0 ? (
+        <p className="text-xs text-slate-500">Nessun obiettivo per questo ruolo.</p>
+      ) : (
       <div className="flex flex-col gap-2">
         {sorted.map((entry) => {
           const sold = soldMap.get(entry.playerId);
@@ -515,6 +540,7 @@ function ShortlistPanel({
           );
         })}
       </div>
+      )}
     </div>
   );
 }

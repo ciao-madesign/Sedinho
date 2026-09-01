@@ -1112,6 +1112,33 @@ Legenda: ✅ implementato · 🚧 scaffolding presente, logica da costruire · �
   un errore di generazione del modello, non un bug nella costruzione del prompt o nell'invio dei
   dati (nessuna trasformazione numerica avviene lato nostro codice, ne' in
   `buildAuctionCommentaryPrompt.ts` ne' in `geminiClient.ts`).
+- **Obiettivi: filtro per ruolo anche nel pannello compatto dell'asta, non solo in `/shortlist`**:
+  richiesto esplicitamente dall'utente ("vedere le prime scelte per l'attacco separate dalla
+  difesa e così via"). `/shortlist` aveva già ruolo/squadra/priorità/ordinamento completi (sez.
+  4) — il gap reale era il drawer "★ Obiettivi" dentro `/auction` (`ShortlistPanel` in
+  `AuctionPage.tsx`), che si riordina da solo per priorità ma non aveva alcun filtro. Aggiunti
+  gli stessi pulsanti pillola Tutti/P/D/C/A già usati altrove (riusa la costante `ROLE_FILTERS`
+  già presente nel file, non duplicata), stato locale al componente: filtra prima di applicare
+  l'ordinamento per priorità esistente. Resta deliberatamente senza un vero controllo di
+  ordinamento separato (spazio limitato in un drawer compatto, coerente con la nota già presente
+  nel codice) — solo il filtro mancava.
+- **Dashboard: escludere i giocatori non disponibili dalle sezioni "consiglio", ordinare per
+  valore invece che alfabeticamente dove mancava un sort esplicito**: segnalato esplicitamente
+  dall'utente. Causa: `GET /players` ordina per nome (`orderBy: { name: "asc" }`), e due sezioni
+  (`setPieceTakers`/"Rigoristi e piazzati", `unavailable`/"Infortuni") facevano solo `.filter()`
+  + `.slice(0, 5)` senza un `.sort()` proprio, ereditando quindi l'ordine alfabetico invece di
+  un ordinamento per rilevanza — corretto aggiungendo `.sort()` per `valueScore` decrescente a
+  entrambe. Per la disponibilità: nuovo `available = filteredPlayers.filter(p => p.availability
+  === "available")`, usato come base per TUTTE le sezioni tranne "Infortuni" (il cui scopo è
+  proprio mostrare chi non è disponibile — l'unica che resta sul pool completo, ora ordinata per
+  valore anch'essa) — un "consiglio" (occasione, titolare, rigorista, trend) su un giocatore
+  infortunato/squalificato/in dubbio sarebbe fuorviante da comprare in asta, non solo un dato
+  impreciso. Stesso principio già applicato all'esclusione dei giocatori fuori listone da `GET
+  /players` (vedi sopra) — qui è un filtro lato frontend perché `availability` è per sua natura
+  temporaneo (un infortunio guarisce) mentre "fuori listone" è strutturale, e Dashboard è l'unico
+  posto con sezioni "consiglio" che ne risentivano (`PlayersPage`/asta mostrano già lo stato con
+  un badge invece di nasconderlo, corretto li' perché li' l'utente sta esplicitamente guardando
+  quel giocatore, non ricevendo un suggerimento).
 
 ## 6. Convenzioni di sviluppo
 

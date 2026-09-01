@@ -66,7 +66,14 @@ export function DashboardPage() {
   const filtersActive = JSON.stringify(filters) !== JSON.stringify(defaultDashboardFilters);
 
   const sections = useMemo<DashboardSectionData[]>(() => {
-    const withValue = (filteredPlayers ?? []).filter((p) => p.valueScore !== null);
+    // Ogni sezione tranne "Infortuni" (il cui scopo è proprio mostrare chi non è disponibile)
+    // parte dal pool SENZA i giocatori infortunati/squalificati/in dubbio — segnalato
+    // esplicitamente dall'utente: un "consiglio" su un giocatore che non è disponibile sarebbe
+    // fuorviante, non solo impreciso (stesso principio già applicato all'esclusione dei
+    // giocatori fuori listone, vedi CLAUDE.md §5).
+    const available = (filteredPlayers ?? []).filter((p) => p.availability === "available");
+
+    const withValue = available.filter((p) => p.valueScore !== null);
     const withQuotation = withValue.filter((p) => (p.initialQuotation ?? 0) > 1);
     const medianQuotation =
       withQuotation.length > 0
@@ -84,26 +91,35 @@ export function DashboardPage() {
       .sort((a, b) => (a.valueScore ?? 0) - (b.valueScore ?? 0))
       .slice(0, 5);
 
-    const starters = (filteredPlayers ?? [])
+    const starters = available
       .filter((p) => p.hierarchyLevel === "starter")
       .sort((a, b) => (b.starterProbability ?? 0) - (a.starterProbability ?? 0))
       .slice(0, 5);
 
-    const setPieceTakers = (filteredPlayers ?? [])
+    // Ordinati per valore (non più l'ordine alfabetico ereditato da GET /players, segnalato
+    // esplicitamente dall'utente come poco utile) cosi' in cima compaiono i rigoristi/piazzati
+    // più rilevanti, non semplicemente i primi in ordine di nome.
+    const setPieceTakers = available
       .filter((p) => p.setPieceTypes.length > 0)
+      .sort((a, b) => (b.valueScore ?? 0) - (a.valueScore ?? 0))
       .slice(0, 5);
 
     // Infortuni (sez. 9): stato ATTUALE (infortunato/squalificato), non uno storico — dal
     // connettore Fantacalciopedia/infortunati (vedi CLAUDE.md §5), stessa scelta di "Titolari"
-    // sopra (la spec chiederebbe "nuovi", qui mostriamo lo stato corrente).
+    // sopra (la spec chiederebbe "nuovi", qui mostriamo lo stato corrente). Unica sezione che
+    // NON parte da `available` (il suo scopo è proprio mostrare chi non lo è) — ordinata per
+    // valore invece che alfabeticamente, cosi' emergono prima gli assenti più rilevanti per la
+    // propria asta, non semplicemente i primi per nome.
     const unavailable = (filteredPlayers ?? [])
       .filter((p) => p.availability !== "available")
+      .sort((a, b) => (b.valueScore ?? 0) - (a.valueScore ?? 0))
       .slice(0, 5);
 
     // Trasferimenti (sez. 6, Transfer Engine): join tra i trasferimenti recenti e il pool
     // filtrato, cosi' la barra filtri della Dashboard si applica anche qui — un trasferimento
-    // di un giocatore escluso dai filtri attuali (es. ruolo/squadra) non compare.
-    const playersById = new Map((filteredPlayers ?? []).map((p) => [p.id, p]));
+    // di un giocatore escluso dai filtri attuali (es. ruolo/squadra) o non più disponibile non
+    // compare.
+    const playersById = new Map(available.map((p) => [p.id, p]));
     const transferSummaryById = new Map(
       (recentTransfers ?? []).map((t) => [
         t.playerId,
@@ -126,12 +142,12 @@ export function DashboardPage() {
       .map((c) => playersById.get(c.playerId))
       .filter((p): p is PlayerListItem => p !== undefined);
 
-    const growing = (filteredPlayers ?? [])
+    const growing = available
       .filter((p) => (p.fantasyAvgTrend ?? 0) > 0)
       .sort((a, b) => (b.fantasyAvgTrend ?? 0) - (a.fantasyAvgTrend ?? 0))
       .slice(0, 5);
 
-    const declining = (filteredPlayers ?? [])
+    const declining = available
       .filter((p) => (p.fantasyAvgTrend ?? 0) < 0)
       .sort((a, b) => (a.fantasyAvgTrend ?? 0) - (b.fantasyAvgTrend ?? 0))
       .slice(0, 5);
